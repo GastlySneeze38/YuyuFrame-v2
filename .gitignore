@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Frontend build outputs
+Frontend/dist/
+Frontend/out/
+Frontend/.vite/
+Frontend/*.tsbuildinfo
+
+# Backend build outputs
+Backend/target/
+Backend/*.db
+Backend/*.db-shm
+Backend/*.db-wal
+
+# Logs and caches
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.cache/
+coverage/
+
+# IDE / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Temporary files
+*.tmp
+*.temp

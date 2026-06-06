@@ -1,0 +1,36 @@
+{
+  "productName": "YuyuFrame",
+  "version": "0.1.0",
+  "identifier": "fr.yuyuframe.launcher",
+  "build": {
+    "beforeDevCommand": "npm --prefix Frontend run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm --prefix Frontend run build",
+    "frontendDist": "../Frontend/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "YuyuFrame",
+        "width": 1280,
+        "height": 760,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.ico"]
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}

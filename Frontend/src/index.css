@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Chill theme (défaut) ── */
+:root,
+[data-theme='chill'] {
+  --bg-primary: 15 23 42;
+  --bg-secondary: 22 33 58;
+  --bg-card: 30 41 59;
+  --accent: 99 102 241;
+  --accent-hover: 129 140 248;
+  --txt-primary: 241 245 249;
+  --txt-secondary: 148 163 184;
+  --border: 51 65 85;
+  --glow: 99 102 241;
+}
+
+/* ── Gamer theme ── */
+[data-theme='gamer'] {
+  --bg-primary: 12 12 14;
+  --bg-secondary: 19 19 21;
+  --bg-card: 30 30 35;
+  --accent: 68 62 185;
+  --accent-hover: 88 82 220;
+  --txt-primary: 248 250 252;
+  --txt-secondary: 148 163 184;
+  --border: 50 45 90;
+  --glow: 68 62 185;
+}
+
+* {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+.selectable,
+.selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: rgb(var(--bg-primary));
+  color: rgb(var(--txt-primary));
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  border-radius: 2px;
+}
+
+/* Glow effect */
+.glow {
+  box-shadow: 0 0 20px rgb(var(--glow) / 0.3), 0 0 40px rgb(var(--glow) / 0.1);
+}
+
+.glow-text {
+  text-shadow: 0 0 20px rgb(var(--glow) / 0.5);
+}
+
+/* Drag region */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+@layer utilities {
+  .transition-theme {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease,
+      box-shadow 0.3s ease;
+  }
+}
