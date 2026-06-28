@@ -23,6 +23,10 @@ jobs:
         working-directory: Frontend
         run: npm ci
 
+      - name: Build frontend
+        working-directory: Frontend
+        run: npm run build
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -30,6 +34,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: Backend
+          args: --config "{\"build\":{\"beforeBuildCommand\":\"\"}}"
           tagName: ${{ github.ref_name }}
           releaseName: 'YuyuFrame ${{ github.ref_name }}'
           releaseDraft: true
