@@ -34,7 +34,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: Backend
-          args: --config "{\"build\":{\"beforeBuildCommand\":\"\"}}"
+          args: --config tauri.ci.conf.json
           tagName: ${{ github.ref_name }}
           releaseName: 'YuyuFrame ${{ github.ref_name }}'
           releaseDraft: true
