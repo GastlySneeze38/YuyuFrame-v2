@@ -46,6 +46,16 @@ export default function App() {
       .then(() => api.instances.list())
       .then(setInstances)
       .catch(() => {})
+
+    // Rafraîchit le token Minecraft au démarrage et périodiquement — sinon
+    // le seul refresh qui se produisait était celui déclenché par
+    // launch_game/mc_switch, donc un token expiré pouvait rester invalide
+    // pendant toute une session passée sans lancer de jeu.
+    api.auth.status().catch(() => {})
+    const interval = setInterval(() => {
+      api.auth.status().catch(() => {})
+    }, 10 * 60 * 1000)
+    return () => clearInterval(interval)
   }, [])
 
   if (isConsoleWindow) {

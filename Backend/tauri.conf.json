@@ -1,11 +1,11 @@
 {
   "productName": "YuyuFrame",
-  "version": "0.1.0-1",
+  "version": "0.1.0-2",
   "identifier": "fr.yuyuframe.launcher",
   "build": {
-    "beforeDevCommand": "npm --prefix ../Frontend run dev",
+    "beforeDevCommand": "npm --prefix Frontend run dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm --prefix ../Frontend run build",
+    "beforeBuildCommand": "npm --prefix Frontend run build",
     "frontendDist": "../Frontend/dist"
   },
   "app": {

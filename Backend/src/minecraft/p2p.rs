@@ -70,7 +70,7 @@ fn peers_global() -> &'static PeerMap {
 }
 
 /// Démarre le signaling WebSocket en arrière-plan (idempotent).
-pub fn start_signaling(app: tauri::AppHandle) {
+pub fn start_signaling(_app: tauri::AppHandle) {
     SIGNALING_STARTED.get_or_init(|| {
         let peers: PeerMap = peers_global().clone();
         let pm = peers.clone();
