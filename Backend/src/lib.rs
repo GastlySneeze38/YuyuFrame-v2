@@ -78,8 +78,10 @@ pub fn run() {
             // restauration sur sa présence faisait que `session` restait toujours
             // `None` au démarrage — le jeu refusait de se lancer depuis Home tant
             // qu'on n'était pas passé par mc_switch (page Login) pour le repeupler
-            // en mémoire. 0 est le même placeholder "pas de compte" qu'ailleurs
-            // (cf. commentaire dans `commands::mc::current_yuyu_user_id`).
+            // en mémoire. Même règle que `state::AppState::current_yuyu_user_id`
+            // (dupliquée ici car l'`AppState` n'existe pas encore à ce stade du
+            // setup) : 0 est le placeholder "pas de compte" déjà utilisé dans le
+            // schéma (cf. table `instances`, colonne yuyu_user_id DEFAULT 0).
             let mc_yuyu_user_id = yuyu_session.as_ref().map(|ys| ys.user_id).unwrap_or(0);
             let mc_session = (|| {
                 let active_uuid = db::get_active_mc_uuid(&conn, mc_yuyu_user_id).ok().flatten()?;

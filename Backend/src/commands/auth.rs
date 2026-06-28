@@ -2,17 +2,6 @@ use serde::Serialize;
 
 use crate::{db, minecraft::auth, state::SharedState, BETA_TEST};
 
-/// Même garde beta-aware que `commands::mc::current_yuyu_user_id` — en beta,
-/// il n'y a jamais de `yuyu_session`, donc bloquer sur sa présence empêchait
-/// tout refresh proactif du token Minecraft.
-fn current_yuyu_user_id(yuyu_session: &Option<crate::state::YuyuSession>) -> Option<i64> {
-    match yuyu_session {
-        Some(y) => Some(y.user_id),
-        None if BETA_TEST => Some(0),
-        None => None,
-    }
-}
-
 #[derive(Serialize)]
 pub struct DeviceAuthResponse {
     pub user_code: String,
@@ -132,7 +121,7 @@ pub async fn auth_poll(state: tauri::State<'_, SharedState>) -> Result<PollRespo
 pub async fn auth_status(state: tauri::State<'_, SharedState>) -> Result<AuthStatusResponse, String> {
     let s = state.read().await;
 
-    let Some(yuyu_user_id) = current_yuyu_user_id(&s.yuyu_session) else {
+    let Some(yuyu_user_id) = s.current_yuyu_user_id() else {
         return Ok(AuthStatusResponse { authenticated: false, username: None, uuid: None });
     };
 
@@ -178,9 +167,9 @@ pub async fn auth_status(state: tauri::State<'_, SharedState>) -> Result<AuthSta
 
 #[tauri::command]
 pub async fn auth_logout(state: tauri::State<'_, SharedState>) -> Result<(), String> {
-    if state.read().await.yuyu_session.is_none() {
-        return Err("Non authentifié".into());
-    }
+    // Pas de garde sur `yuyu_session` : se déconnecter du compte Minecraft
+    // n'a jamais nécessité d'être connecté à YuyuFrame, et en BETA_TEST ce
+    // garde bloquait carrément la déconnexion (yuyu_session toujours None).
     state.write().await.session = None;
     Ok(())
 }

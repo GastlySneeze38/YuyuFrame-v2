@@ -64,7 +64,7 @@ fn row_to_instance(r: db::InstanceRow) -> Instance {
 }
 
 fn user_id(s: &crate::state::AppState) -> i64 {
-    s.yuyu_session.as_ref().map(|y| y.user_id).unwrap_or(0)
+    s.current_yuyu_user_id().unwrap_or(0)
 }
 
 #[tauri::command]

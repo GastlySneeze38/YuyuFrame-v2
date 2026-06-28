@@ -27,7 +27,7 @@ pub async fn launch_game(
 
     let yuyu_user_id = {
         let s = state.read().await;
-        s.yuyu_session.as_ref().map(|y| y.user_id).unwrap_or(0)
+        s.current_yuyu_user_id().unwrap_or(0)
     };
 
     let instance = {
@@ -159,7 +159,7 @@ async fn refresh_if_needed(
     // Persist to state and DB
     {
         let s = state.read().await;
-        let yuyu_user_id = s.yuyu_session.as_ref().map(|y| y.user_id).unwrap_or(0);
+        let yuyu_user_id = s.current_yuyu_user_id().unwrap_or(0);
         let db = s.db.lock().await;
         let _ = db::update_mc_tokens(
             &db,

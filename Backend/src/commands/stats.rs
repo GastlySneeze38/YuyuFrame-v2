@@ -39,7 +39,7 @@ pub struct StatsPayload {
 #[tauri::command]
 pub async fn stats_get(state: tauri::State<'_, SharedState>) -> Result<StatsPayload, String> {
     let s = state.read().await;
-    let user_id = s.yuyu_session.as_ref().map(|y| y.user_id).unwrap_or(0);
+    let user_id = s.current_yuyu_user_id().unwrap_or(0);
     let db = s.db.lock().await;
 
     let (total_sessions, total_secs) =
