@@ -2,6 +2,17 @@ use serde::Serialize;
 
 use crate::{db, minecraft::auth, state::SharedState, BETA_TEST};
 
+/// Même garde beta-aware que `commands::mc::current_yuyu_user_id` — en beta,
+/// il n'y a jamais de `yuyu_session`, donc bloquer sur sa présence empêchait
+/// tout refresh proactif du token Minecraft.
+fn current_yuyu_user_id(yuyu_session: &Option<crate::state::YuyuSession>) -> Option<i64> {
+    match yuyu_session {
+        Some(y) => Some(y.user_id),
+        None if BETA_TEST => Some(0),
+        None => None,
+    }
+}
+
 #[derive(Serialize)]
 pub struct DeviceAuthResponse {
     pub user_code: String,
@@ -121,11 +132,10 @@ pub async fn auth_poll(state: tauri::State<'_, SharedState>) -> Result<PollRespo
 pub async fn auth_status(state: tauri::State<'_, SharedState>) -> Result<AuthStatusResponse, String> {
     let s = state.read().await;
 
-    if s.yuyu_session.is_none() {
+    let Some(yuyu_user_id) = current_yuyu_user_id(&s.yuyu_session) else {
         return Ok(AuthStatusResponse { authenticated: false, username: None, uuid: None });
-    }
+    };
 
-    let yuyu_user_id = s.yuyu_session.as_ref().unwrap().user_id;
     let session = s.session.clone();
     drop(s);
 

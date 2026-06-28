@@ -22,16 +22,14 @@ pub fn run() {
     // main.rs) — aucune console n'est attachée, donc tous les logs qui
     // s'affichaient en dev étaient invisibles en prod, rendant tout bug
     // spécifique au build buildé impossible à diagnostiquer. On écrit
-    // maintenant aussi dans un fichier `yuyuframe.log` à côté de la DB
-    // (même logique dev/prod), en plus du stdout pour le dev.
-    let log_dir = if cfg!(dev) {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
-    } else {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-    };
+    // maintenant aussi dans un fichier `yuyuframe.log`, en plus du stdout
+    // pour le dev. Toujours dans %APPDATA%\YuyuFrame\.minecraft (jamais dans
+    // CARGO_MANIFEST_DIR) : en dev ce dossier est surveillé par `cargo
+    // watch`, donc chaque écriture de log déclenchait un rebuild en boucle.
+    let log_dir = dirs::data_dir()
+        .map(|d| d.join("YuyuFrame").join(".minecraft"))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    std::fs::create_dir_all(&log_dir).ok();
     let file_appender = tracing_appender::rolling::never(&log_dir, "yuyuframe.log");
     let (non_blocking, _log_guard) = tracing_appender::non_blocking(file_appender);
 
