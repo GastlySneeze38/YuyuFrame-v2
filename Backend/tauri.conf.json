@@ -1,0 +1,44 @@
+{
+  "productName": "YuyuFrame",
+  "version": "0.1.0-1",
+  "identifier": "fr.yuyuframe.launcher",
+  "build": {
+    "beforeDevCommand": "npm --prefix ../Frontend run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm --prefix ../Frontend run build",
+    "frontendDist": "../Frontend/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "YuyuFrame",
+        "width": 1280,
+        "height": 760,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.ico"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/GastlySneeze38/YuyuFrame-v2/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg5OEU0MkZBMTBDNzNGQjQKUldTMFA4Y1Era0tPaWFrWFEyNDdNM3R5a1FqRXhFNkdIMTBhYWg1a1FvTC9zR2FqZm82WHBBRysK"
+    }
+  }
+}

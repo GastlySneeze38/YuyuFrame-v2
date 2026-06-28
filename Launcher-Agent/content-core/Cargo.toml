@@ -1,0 +1,17 @@
+[package]
+name = "content-core"
+version = "0.1.0"
+edition = "2021"
+
+# Lib chargeable par Java via JNI — séparée de rust_core.dll (p2p), aucune
+# dépendance partagée avec P2P-Server/rust-core (voir docs/LauncherAgent/index.md).
+[lib]
+name = "content_core"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+jni = "0.21"
+ureq = { version = "2", features = ["json"] }

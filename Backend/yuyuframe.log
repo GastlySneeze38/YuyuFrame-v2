@@ -1,0 +1,128 @@
+2026-06-27T08:41:52.133646Z  INFO yuyuframe_lib::db: Base de données : D:\projets\YuyuFrame 2\Backend\yuyu.db
+2026-06-27T08:41:52.134693Z  INFO yuyuframe_lib: Base de données : D:\projets\YuyuFrame 2\Backend\yuyu.db
+2026-06-27T08:41:52.134952Z  INFO yuyuframe_lib: Session YuyuFrame restaurée pour Ghasty
+2026-06-27T08:41:52.135420Z  INFO yuyuframe_lib: Session Minecraft restaurée pour GhastlySneeze38
+2026-06-27T08:42:00.795830Z TRACE hyper_util::client::legacy::pool: checkout waiting for idle connection: ("https", launchermeta.mojang.com)
+2026-06-27T08:42:00.796075Z DEBUG reqwest::connect: starting new connection: https://launchermeta.mojang.com/
+2026-06-27T08:42:00.796295Z TRACE hyper_util::client::legacy::connect::http: Http::connect; scheme=Some("https"), host=Some("launchermeta.mojang.com"), port=None
+2026-06-27T08:42:00.825341Z DEBUG hyper_util::client::legacy::connect::http: connecting to [2620:1ec:48:1::43]:443
+2026-06-27T08:42:00.844644Z DEBUG hyper_util::client::legacy::connect::http: connected to [2620:1ec:48:1::43]:443
+2026-06-27T08:42:01.013602Z TRACE hyper_util::client::legacy::client: http1 handshake complete, spawning background dispatcher task
+2026-06-27T08:42:01.013786Z TRACE hyper_util::client::legacy::client: waiting for connection to be ready
+2026-06-27T08:42:01.014042Z TRACE hyper_util::client::legacy::client: connection is ready
+2026-06-27T08:42:01.014171Z TRACE hyper_util::client::legacy::pool: checkout dropped for ("https", launchermeta.mojang.com)
+2026-06-27T08:42:01.036942Z TRACE reqwest::retry: shouldn't retry!
+2026-06-27T08:42:01.091043Z TRACE hyper_util::client::legacy::pool: put; add idle connection for ("https", launchermeta.mojang.com)
+2026-06-27T08:42:01.091188Z DEBUG hyper_util::client::legacy::pool: pooling idle connection for ("https", launchermeta.mojang.com)
+2026-06-27T08:42:01.099787Z TRACE hyper_util::client::legacy::pool: pool closed, canceling idle interval
+2026-06-27T08:42:10.030021Z TRACE hyper_util::client::legacy::pool: checkout waiting for idle connection: ("https", login.live.com)
+2026-06-27T08:42:10.030194Z DEBUG reqwest::connect: starting new connection: https://login.live.com/
+2026-06-27T08:42:10.030328Z TRACE hyper_util::client::legacy::connect::http: Http::connect; scheme=Some("https"), host=Some("login.live.com"), port=None
+2026-06-27T08:42:10.052114Z DEBUG hyper_util::client::legacy::connect::http: connecting to 20.190.160.22:443
+2026-06-27T08:42:10.078326Z DEBUG hyper_util::client::legacy::connect::http: connected to 20.190.160.22:443
+2026-06-27T08:42:10.262520Z TRACE hyper_util::client::legacy::client: http1 handshake complete, spawning background dispatcher task
+2026-06-27T08:42:10.262698Z TRACE hyper_util::client::legacy::client: waiting for connection to be ready
+2026-06-27T08:42:10.262909Z TRACE hyper_util::client::legacy::client: connection is ready
+2026-06-27T08:42:10.263036Z TRACE hyper_util::client::legacy::pool: checkout dropped for ("https", login.live.com)
+2026-06-27T08:42:10.442487Z TRACE hyper_util::client::legacy::pool: put; add idle connection for ("https", login.live.com)
+2026-06-27T08:42:10.442627Z DEBUG hyper_util::client::legacy::pool: pooling idle connection for ("https", login.live.com)
+2026-06-27T08:42:10.442747Z TRACE reqwest::retry: shouldn't retry!
+2026-06-27T08:42:10.443032Z DEBUG yuyuframe_lib::minecraft::auth: MS device code raw response: {"user_code":"FBNNGZP6","device_code":"-DtkzZ*r4VbBPMi0kkWPC*CS8euXm0wFQrT6CufK89Dnm0!Y*qfKPvEvojN5zUgkhXgxE1To62Gh9WNT8yB!RKo2u3UlVQYSBO5o2zjDVzfN*1fQvxgJXxrMyZeOeFvAZAQ$$","verification_uri":"https://www.microsoft.com/link","interval":5,"expires_in":900}
+2026-06-27T08:42:10.443349Z TRACE hyper_util::client::legacy::pool: pool closed, canceling idle interval
+2026-06-27T08:42:15.449471Z TRACE hyper_util::client::legacy::pool: checkout waiting for idle connection: ("https", login.live.com)
+2026-06-27T08:42:15.449645Z DEBUG reqwest::connect: starting new connection: https://login.live.com/
+2026-06-27T08:42:15.449790Z TRACE hyper_util::client::legacy::connect::http: Http::connect; scheme=Some("https"), host=Some("login.live.com"), port=None
+2026-06-27T08:42:15.475942Z DEBUG hyper_util::client::legacy::connect::http: connecting to 20.190.160.22:443
+2026-06-27T08:42:15.509519Z DEBUG hyper_util::client::legacy::connect::http: connected to 20.190.160.22:443
+2026-06-27T08:42:15.687819Z TRACE hyper_util::client::legacy::client: http1 handshake complete, spawning background dispatcher task
+2026-06-27T08:42:15.687974Z TRACE hyper_util::client::legacy::client: waiting for connection to be ready
+2026-06-27T08:42:15.688152Z TRACE hyper_util::client::legacy::client: connection is ready
+2026-06-27T08:42:15.688300Z TRACE hyper_util::client::legacy::pool: checkout dropped for ("https", login.live.com)
+2026-06-27T08:42:15.871592Z TRACE hyper_util::client::legacy::pool: put; add idle connection for ("https", login.live.com)
+2026-06-27T08:42:15.871724Z DEBUG hyper_util::client::legacy::pool: pooling idle connection for ("https", login.live.com)
+2026-06-27T08:42:15.871869Z TRACE reqwest::retry: shouldn't retry!
+2026-06-27T08:42:15.872167Z DEBUG yuyuframe_lib::minecraft::auth: MS poll raw response: {"error":"authorization_pending","error_description":"The provided request has not yet been authorized by the user. The user must input their code.","correlation_id":"26eff666-0baf-4a45-98d6-41bb0729299a"}
+2026-06-27T08:42:15.872472Z TRACE hyper_util::client::legacy::pool: pool closed, canceling idle interval
+2026-06-27T08:42:20.448404Z TRACE hyper_util::client::legacy::pool: checkout waiting for idle connection: ("https", login.live.com)
+2026-06-27T08:42:20.448564Z DEBUG reqwest::connect: starting new connection: https://login.live.com/
+2026-06-27T08:42:20.448690Z TRACE hyper_util::client::legacy::connect::http: Http::connect; scheme=Some("https"), host=Some("login.live.com"), port=None
+2026-06-27T08:42:20.472794Z DEBUG hyper_util::client::legacy::connect::http: connecting to 20.190.160.22:443
+2026-06-27T08:42:20.502225Z DEBUG hyper_util::client::legacy::connect::http: connected to 20.190.160.22:443
+2026-06-27T08:42:20.685150Z TRACE hyper_util::client::legacy::client: http1 handshake complete, spawning background dispatcher task
+2026-06-27T08:42:20.685315Z TRACE hyper_util::client::legacy::client: waiting for connection to be ready
+2026-06-27T08:42:20.685490Z TRACE hyper_util::client::legacy::client: connection is ready
+2026-06-27T08:42:20.685622Z TRACE hyper_util::client::legacy::pool: checkout dropped for ("https", login.live.com)
+2026-06-27T08:42:20.830622Z TRACE hyper_util::client::legacy::pool: put; add idle connection for ("https", login.live.com)
+2026-06-27T08:42:20.830787Z DEBUG hyper_util::client::legacy::pool: pooling idle connection for ("https", login.live.com)
+2026-06-27T08:42:20.830969Z TRACE reqwest::retry: shouldn't retry!
+2026-06-27T08:42:20.831256Z DEBUG yuyuframe_lib::minecraft::auth: MS poll raw response: {"error":"authorization_pending","error_description":"The provided request has not yet been authorized by the user. The user must input their code.","correlation_id":"26eff666-0baf-4a45-98d6-41bb0729299a"}
+2026-06-27T08:42:20.831592Z TRACE hyper_util::client::legacy::pool: pool closed, canceling idle interval
+2026-06-27T08:42:25.449683Z TRACE hyper_util::client::legacy::pool: checkout waiting for idle connection: ("https", login.live.com)
+2026-06-27T08:42:25.449853Z DEBUG reqwest::connect: starting new connection: https://login.live.com/
+2026-06-27T08:42:25.449992Z TRACE hyper_util::client::legacy::connect::http: Http::connect; scheme=Some("https"), host=Some("login.live.com"), port=None
+2026-06-27T08:42:25.472244Z DEBUG hyper_util::client::legacy::connect::http: connecting to 20.190.160.22:443
+2026-06-27T08:42:25.499974Z DEBUG hyper_util::client::legacy::connect::http: connected to 20.190.160.22:443
+2026-06-27T08:42:25.680337Z TRACE hyper_util::client::legacy::client: http1 handshake complete, spawning background dispatcher task
+2026-06-27T08:42:25.680480Z TRACE hyper_util::client::legacy::client: waiting for connection to be ready
+2026-06-27T08:42:25.680646Z TRACE hyper_util::client::legacy::client: connection is ready
+2026-06-27T08:42:25.680770Z TRACE hyper_util::client::legacy::pool: checkout dropped for ("https", login.live.com)
+2026-06-27T08:42:25.831477Z TRACE hyper_util::client::legacy::pool: put; add idle connection for ("https", login.live.com)
+2026-06-27T08:42:25.831664Z DEBUG hyper_util::client::legacy::pool: pooling idle connection for ("https", login.live.com)
+2026-06-27T08:42:25.831815Z TRACE reqwest::retry: shouldn't retry!
+2026-06-27T08:42:25.832072Z DEBUG yuyuframe_lib::minecraft::auth: MS poll raw response: {"error":"authorization_pending","error_description":"The provided request has not yet been authorized by the user. The user must input their code.","correlation_id":"26eff666-0baf-4a45-98d6-41bb0729299a"}
+2026-06-27T08:42:25.832367Z TRACE hyper_util::client::legacy::pool: pool closed, canceling idle interval
+2026-06-27T08:42:30.448621Z TRACE hyper_util::client::legacy::pool: checkout waiting for idle connection: ("https", login.live.com)
+2026-06-27T08:42:30.448775Z DEBUG reqwest::connect: starting new connection: https://login.live.com/
+2026-06-27T08:42:30.448920Z TRACE hyper_util::client::legacy::connect::http: Http::connect; scheme=Some("https"), host=Some("login.live.com"), port=None
+2026-06-27T08:42:30.472979Z DEBUG hyper_util::client::legacy::connect::http: connecting to 20.190.160.22:443
+2026-06-27T08:42:30.499631Z DEBUG hyper_util::client::legacy::connect::http: connected to 20.190.160.22:443
+2026-06-27T08:42:30.681448Z TRACE hyper_util::client::legacy::client: http1 handshake complete, spawning background dispatcher task
+2026-06-27T08:42:30.681615Z TRACE hyper_util::client::legacy::client: waiting for connection to be ready
+2026-06-27T08:42:30.681818Z TRACE hyper_util::client::legacy::client: connection is ready
+2026-06-27T08:42:30.681939Z TRACE hyper_util::client::legacy::pool: checkout dropped for ("https", login.live.com)
+2026-06-27T08:42:31.344532Z TRACE hyper_util::client::legacy::pool: put; add idle connection for ("https", login.live.com)
+2026-06-27T08:42:31.344692Z DEBUG hyper_util::client::legacy::pool: pooling idle connection for ("https", login.live.com)
+2026-06-27T08:42:31.344844Z TRACE reqwest::retry: shouldn't retry!
+2026-06-27T08:42:31.345137Z DEBUG yuyuframe_lib::minecraft::auth: MS poll raw response: {"token_type":"bearer","expires_in":3600,"scope":"XboxLive.signin","access_token":"EwDYA+pvBAAUKods63Ys1fGlwiccIFJ+qE1hANsAASjenSBGqmA3Jxd0VdHdddqzhFR3gJgNrZOb1Cy9yXcwnGb8E7QfK0/G887A2J5Z+FlL/1gXNwPGLN+Qyv145cTt1HZ+W8lwOgs8YAuRvo5hLBJp0vy2nzBJ0PxFw+C6ifhrAC6JU2nNqb5ZgYbjrQo42XazpRcHRRhJDuK5foUIsTV583toA+hHhGzHlfBCOct08WYh5nFlLIln+2lP45m74iAnN/rRDKKFglSEurTi2rkEXkL+6FJ/eRA54CsD/YqZHB82SX5ICGY/6lWHkBC/vs9CJoIXExsXLmf/WixtYLNQKyFfN2TPuAMRbGY6hgOVMusf8nfSigQlffORUqAQZgAAEAXq+oOuZJHpM6cFEM22FHagAuEgNAJLQ+gOsAq/5AcS6FAkYPEoFV0DIaNDUY+3iTxoFmf3j00TbOYCFqynHo/7qDLaidmCoSbBtfapGziBqfwyA/UTRcP3fYRqD05vLST7GTzJEyOd/b7cApdZLxVwtS4qK7K1c5JqCcwm11VTYipFqD9USqZ7MHdhsCFvDuCXR32jMeJSkAZX/iNCGzOquNDytIT+tZxJCrl3lm4tBxQQ2Un7MywYK6YkM/QPG7M3oZO0xKjUpB2mWd9Kwy3Oz3Gdt6lQqAQFh/l+v0wWlEIU8VeVMJdO61s1fqJ1LStk1vGLL822sbZFsFBxOGJN+brRGBPyrevflZxkxyP2m6Ibsr0dKX5cxFe1urDVjr7YSkeu5WbOqhftukkSg2zuQSkmmdCja+f08Fp7aVZv2rUk/oVv0+Sv3xswLLKI8Y2Nok63itT19Ag3qvjkp4FkzZz9I3Ug+bJVe1KOgG/9fG72wkhSxeInskJPFZ/sWeSR02UtwEPsmLbFoP9C5Tdcp/DhMOzigBcW3RHph+2+QZRidsipRM2eG2ozHBSzw0pSU2qypX8eP0kFWMSFW1tp24KvuEfc4go0cccKMEyQ/kpm94AjW4n0DPZtlLufrVedmHVXn7LUR5Mi5rX/Nx34q0rWYNDLa9aZrd+/bnqOaX2U5XqT+mFp+SnVLPOAmM1kqWltavOsLeC/TqtwmHyFdMzbqbmcP6KY16VJMNdlLyH/IPhtuPt4Ssr+MAtkRDqZ675XZUbIgA7nAozJlRrKXUVudWZeYNb//7nsz5NOLzDp5d55prKkK21OxcJIdbm2PDgHhJNGp6bB0KNbEoW2w2nwZ6CbdCwDiKUI5Ao2LNjDBVBv3CZkeZNrdkSKDsclOb/dQZ1ApQ67zJq/2KUsuM8C","refresh_token":"M.C545_BAY.0.U.MsaArtifacts.-ChCwFsG2AHLxcPrEEUIB!Nz6qTpL0T90ZQrBa8mvSaYtr7gMYRLrkkvFGBvqFGxr1fXpKAsWDhj9cCdLivgqFXX0KrhjDk6gJ3lF!k8de549nEtyd!UuqzPO5IcmA7MY0Dj!8FVUsxIiEwwam*zjQGBG4KtqgXOZVktOdy6EASF3G0xjJTry*Rji0XyVrcdYS0ZGu4J470zoMJ5wjVgmISCHnYYFymtmzi4PdeYaORDofJL4P!YG!34T8uJjq9ErKSP9hSHyBSmYg3yQ*9t*g*I7WLkjbADCXNb*qbQFPyhU52LMUKUv2qjWdW*EKKJ6FN35PG8ZLCTkrrwHfRea67g$","user_id":"40002be7e7b64f23d7f055d230c1959e"}
+2026-06-27T08:42:31.345480Z TRACE hyper_util::client::legacy::pool: checkout waiting for idle connection: ("https", user.auth.xboxlive.com)
+2026-06-27T08:42:31.345587Z DEBUG reqwest::connect: starting new connection: https://user.auth.xboxlive.com/
+2026-06-27T08:42:31.345716Z TRACE hyper_util::client::legacy::connect::http: Http::connect; scheme=Some("https"), host=Some("user.auth.xboxlive.com"), port=None
+2026-06-27T08:42:31.370117Z DEBUG hyper_util::client::legacy::connect::http: connecting to 20.201.217.23:443
+2026-06-27T08:42:31.411252Z DEBUG hyper_util::client::legacy::connect::http: connected to 20.201.217.23:443
+2026-06-27T08:42:31.581112Z TRACE hyper_util::client::legacy::client: http1 handshake complete, spawning background dispatcher task
+2026-06-27T08:42:31.581243Z TRACE hyper_util::client::legacy::client: waiting for connection to be ready
+2026-06-27T08:42:31.581442Z TRACE hyper_util::client::legacy::client: connection is ready
+2026-06-27T08:42:31.581549Z TRACE hyper_util::client::legacy::pool: checkout dropped for ("https", user.auth.xboxlive.com)
+2026-06-27T08:42:31.625679Z TRACE hyper_util::client::legacy::pool: put; add idle connection for ("https", user.auth.xboxlive.com)
+2026-06-27T08:42:31.625835Z DEBUG hyper_util::client::legacy::pool: pooling idle connection for ("https", user.auth.xboxlive.com)
+2026-06-27T08:42:31.625987Z TRACE reqwest::retry: shouldn't retry!
+2026-06-27T08:42:31.626442Z TRACE hyper_util::client::legacy::pool: checkout waiting for idle connection: ("https", xsts.auth.xboxlive.com)
+2026-06-27T08:42:31.626558Z DEBUG reqwest::connect: starting new connection: https://xsts.auth.xboxlive.com/
+2026-06-27T08:42:31.626676Z TRACE hyper_util::client::legacy::connect::http: Http::connect; scheme=Some("https"), host=Some("xsts.auth.xboxlive.com"), port=None
+2026-06-27T08:42:31.647951Z DEBUG hyper_util::client::legacy::connect::http: connecting to 20.201.200.49:443
+2026-06-27T08:42:31.769523Z DEBUG hyper_util::client::legacy::connect::http: connected to 20.201.200.49:443
+2026-06-27T08:42:32.011341Z TRACE hyper_util::client::legacy::client: http1 handshake complete, spawning background dispatcher task
+2026-06-27T08:42:32.011514Z TRACE hyper_util::client::legacy::client: waiting for connection to be ready
+2026-06-27T08:42:32.011681Z TRACE hyper_util::client::legacy::client: connection is ready
+2026-06-27T08:42:32.011784Z TRACE hyper_util::client::legacy::pool: checkout dropped for ("https", xsts.auth.xboxlive.com)
+2026-06-27T08:42:32.224372Z TRACE hyper_util::client::legacy::pool: put; add idle connection for ("https", xsts.auth.xboxlive.com)
+2026-06-27T08:42:32.224540Z DEBUG hyper_util::client::legacy::pool: pooling idle connection for ("https", xsts.auth.xboxlive.com)
+2026-06-27T08:42:32.224687Z TRACE reqwest::retry: shouldn't retry!
+2026-06-27T08:42:32.225082Z TRACE hyper_util::client::legacy::pool: checkout waiting for idle connection: ("https", api.minecraftservices.com)
+2026-06-27T08:42:32.225214Z DEBUG reqwest::connect: starting new connection: https://api.minecraftservices.com/
+2026-06-27T08:42:32.225342Z TRACE hyper_util::client::legacy::connect::http: Http::connect; scheme=Some("https"), host=Some("api.minecraftservices.com"), port=None
+2026-06-27T08:42:32.247823Z DEBUG hyper_util::client::legacy::connect::http: connecting to [2620:1ec:48:1::43]:443
+2026-06-27T08:42:32.271579Z DEBUG hyper_util::client::legacy::connect::http: connected to [2620:1ec:48:1::43]:443
+2026-06-27T08:42:32.418664Z TRACE hyper_util::client::legacy::client: http1 handshake complete, spawning background dispatcher task
+2026-06-27T08:42:32.418812Z TRACE hyper_util::client::legacy::client: waiting for connection to be ready
+2026-06-27T08:42:32.419002Z TRACE hyper_util::client::legacy::client: connection is ready
+2026-06-27T08:42:32.419134Z TRACE hyper_util::client::legacy::pool: checkout dropped for ("https", api.minecraftservices.com)
+2026-06-27T08:42:32.602584Z TRACE reqwest::retry: shouldn't retry!
+2026-06-27T08:42:32.602938Z TRACE hyper_util::client::legacy::pool: put; add idle connection for ("https", api.minecraftservices.com)
+2026-06-27T08:42:32.603149Z DEBUG hyper_util::client::legacy::pool: pooling idle connection for ("https", api.minecraftservices.com)
+2026-06-27T08:42:32.603317Z TRACE hyper_util::client::legacy::pool: take? ("https", api.minecraftservices.com): expiration = Some(90s)
+2026-06-27T08:42:32.603421Z DEBUG hyper_util::client::legacy::pool: reuse idle connection for ("https", api.minecraftservices.com)
+2026-06-27T08:42:32.719701Z TRACE reqwest::retry: shouldn't retry!
+2026-06-27T08:42:32.720151Z TRACE hyper_util::client::legacy::pool: put; add idle connection for ("https", api.minecraftservices.com)
+2026-06-27T08:42:32.720296Z DEBUG hyper_util::client::legacy::pool: pooling idle connection for ("https", api.minecraftservices.com)
+2026-06-27T08:42:32.720493Z TRACE hyper_util::client::legacy::pool: pool closed, canceling idle interval
