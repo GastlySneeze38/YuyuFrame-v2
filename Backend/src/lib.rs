@@ -73,10 +73,17 @@ pub fn run() {
                     }
                 });
 
-            // Restaurer la session MC active depuis la DB si un utilisateur est connecté
-            let mc_session = yuyu_session.as_ref().and_then(|ys| {
-                let active_uuid = db::get_active_mc_uuid(&conn, ys.user_id).ok().flatten()?;
-                let row = db::get_mc_session(&conn, ys.user_id, &active_uuid).ok().flatten()?;
+            // Restaurer la session MC active depuis la DB. En BETA_TEST il n'y a
+            // jamais de `yuyu_session` (login YuyuFrame skippé), donc gater cette
+            // restauration sur sa présence faisait que `session` restait toujours
+            // `None` au démarrage — le jeu refusait de se lancer depuis Home tant
+            // qu'on n'était pas passé par mc_switch (page Login) pour le repeupler
+            // en mémoire. 0 est le même placeholder "pas de compte" qu'ailleurs
+            // (cf. commentaire dans `commands::mc::current_yuyu_user_id`).
+            let mc_yuyu_user_id = yuyu_session.as_ref().map(|ys| ys.user_id).unwrap_or(0);
+            let mc_session = (|| {
+                let active_uuid = db::get_active_mc_uuid(&conn, mc_yuyu_user_id).ok().flatten()?;
+                let row = db::get_mc_session(&conn, mc_yuyu_user_id, &active_uuid).ok().flatten()?;
                 tracing::info!("Session Minecraft restaurée pour {}", row.mc_username);
                 Some(state::MinecraftSession {
                     username: row.mc_username,
@@ -85,7 +92,7 @@ pub fn run() {
                     refresh_token: Some(row.ms_refresh_token),
                     expires_at: row.expires_at,
                 })
-            });
+            })();
 
             let app_state: state::SharedState = Arc::new(RwLock::new(state::AppState {
                 db: Arc::new(Mutex::new(conn)),
