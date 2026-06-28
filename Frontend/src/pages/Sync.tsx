@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { api } from '@/api/client'
 import { useStore } from '@/stores/useStore'
 import type { Instance, SaveInfo, SyncInstance, SyncProgress } from '@/types'
+import { BETA_TEST } from '@/config/beta'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -629,6 +630,29 @@ function InstancesSyncCard() {
 export default function Sync() {
   const navigate = useNavigate()
   const { yuyuPlan } = useStore()
+
+  if (BETA_TEST) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4" style={{ background: '#09090D' }}>
+        <div style={{ opacity: 0.15 }}>
+          <svg viewBox="0 0 24 24" fill="white" width={48} height={48}><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" /></svg>
+        </div>
+        <p style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.5)' }}>Sync non disponible en bêta</p>
+        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', textAlign: 'center', maxWidth: 280 }}>
+          La synchronisation cloud sera accessible dans une prochaine version.
+        </p>
+        <button
+          onClick={() => navigate('/home')}
+          className="rounded-xl px-5 py-2 text-sm font-semibold transition-all duration-150"
+          style={{ background: 'rgba(75,63,207,0.18)', border: '1px solid rgba(75,63,207,0.35)', color: 'rgba(180,170,255,0.9)' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(75,63,207,0.3)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(75,63,207,0.18)' }}
+        >
+          Retour
+        </button>
+      </div>
+    )
+  }
   const planLabel = yuyuPlan === 'ultimate' ? 'ULTIMATE' : 'PREMIUM'
   const planColor = yuyuPlan === 'ultimate' ? { color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' } : { color: '#818cf8', bg: 'rgba(75,63,207,0.18)' }
 

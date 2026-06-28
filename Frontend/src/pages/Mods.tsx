@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { open } from '@tauri-apps/plugin-shell'
 import { api } from '@/api/client'
 import { useStore } from '@/stores/useStore'
-import type { Instance, Mod } from '@/types'
+import type { Instance, Mod, ModpackMeta } from '@/types'
+import { searchModrinthModpacks, resolveModpackFile, formatRelativeDate, type ModpackHit } from '@/lib/modrinthModpacks'
 
 // ── Types internes ───────────────────────────────────────────────────────────
 
@@ -19,6 +21,8 @@ interface ModUpdate {
   newVersion: string
   fileUrl: string
   filename: string
+  /// Mods dont la dépendance déclarée (fabric.mod.json) serait cassée par cette mise à jour.
+  blockedBy: string[]
 }
 
 // ── Modrinth types ────────────────────────────────────────────────────────────
@@ -52,6 +56,15 @@ function formatDownloads(n: number): string {
 
 function displayName(name: string): string {
   return name.replace(/\.jar(\.disabled)?$/, '')
+}
+
+/// Détecte une version pré-release (beta/alpha/rc/pre/snapshot) — même heuristique
+/// que côté Rust (deps.rs) pour ne jamais proposer ces versions automatiquement.
+function isBetaVersion(version: string): boolean {
+  return version.split(/[.\-+]/).some((seg) => {
+    const l = seg.toLowerCase()
+    return ['alpha', 'beta', 'rc', 'pre', 'snapshot'].some((kw) => l.startsWith(kw))
+  })
 }
 
 
@@ -92,10 +105,12 @@ async function fetchVersionsByHash(sha1s: string[]): Promise<Record<string, Modr
 }
 
 async function checkForUpdates(
+  instanceId: string,
   mods: Mod[],
   versionData: Record<string, ModrinthInfo>,
   mcVersion: string,
   loader: string,
+  avoidBeta: boolean,
 ): Promise<ModUpdate[]> {
   const eligible = mods.filter((m) => m.sha1)
   if (eligible.length === 0) return []
@@ -120,6 +135,7 @@ async function checkForUpdates(
     for (const mod of eligible) {
       const latest = data[mod.sha1]
       if (!latest) continue
+      if (avoidBeta && isBetaVersion(latest.version_number)) continue // jamais de beta auto
       const primary = latest.files.find((f) => f.primary) ?? latest.files[0]
       if (!primary) continue
       if (primary.hashes?.sha1 === mod.sha1) continue // déjà à jour
@@ -130,8 +146,27 @@ async function checkForUpdates(
         newVersion: latest.version_number,
         fileUrl: primary.url,
         filename: primary.filename,
+        blockedBy: [],
       })
     }
+
+    // Ne propose pas une mise à jour qui casserait la contrainte de version
+    // d'un autre mod installé (ex: Voxy exige Sodium &lt;0.8.13).
+    if (updates.length > 0) {
+      try {
+        const safety = await api.mods.checkUpdateSafety(
+          instanceId,
+          mcVersion,
+          loader,
+          updates.map((u) => ({ name: u.mod.name, newVersion: u.newVersion })),
+        )
+        const blockedByName = new Map(safety.map((s) => [s.name, s.blockedBy]))
+        for (const u of updates) {
+          u.blockedBy = blockedByName.get(u.mod.name) ?? []
+        }
+      } catch { /* la vérification de sécurité est best-effort */ }
+    }
+
     return updates
   } catch {
     return []
@@ -229,7 +264,11 @@ async function fetchLatestVersion(
   return versions[0] ?? null
 }
 
-type Tab = 'installed' | 'browse'
+type Tab = 'installed' | 'browse' | 'modpack'
+
+function baseFilename(name: string): string {
+  return name.replace(/\.disabled$/, '')
+}
 
 // Cache module-level : évite de rappeler Modrinth à chaque ouverture du panel
 const _modrinthCache: Record<string, {
@@ -247,16 +286,19 @@ export function ModsContent({ instance }: { instance: Instance }) {
   const mcVersion = instance.mc_version
   const loader = instance.loader
   const isPlugin = loader === 'vanilla'
+  const { avoidBetaDependencies } = useStore()
 
   const [tab, setTab] = useState<Tab>('installed')
   const [mods, setMods] = useState<Mod[]>([])
   const [loadingMods, setLoadingMods] = useState(true)
   const [modsError, setModsError] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [importingOptifine, setImportingOptifine] = useState(false)
   const [versionMap, setVersionMap] = useState<Record<string, ModrinthInfo>>({})
   const [updates, setUpdates] = useState<ModUpdate[]>([])
   const [updatingMods, setUpdatingMods] = useState<Set<string>>(new Set())
   const [updatingAll, setUpdatingAll] = useState(false)
+  const [updatingPackAll, setUpdatingPackAll] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const mergeVersions = (fetched: Record<string, ModrinthInfo>) =>
@@ -271,6 +313,93 @@ export function ModsContent({ instance }: { instance: Instance }) {
 
   const [modSearch, setModSearch] = useState('')
   const [logoCache, setLogoCache] = useState<Record<string, string | null>>({})
+
+  const [modpackMeta, setModpackMeta] = useState<ModpackMeta | null>(null)
+  const [modpackMenuOpen, setModpackMenuOpen] = useState(false)
+  const [showPackContent, setShowPackContent] = useState(false)
+  const [packQuery, setPackQuery] = useState('')
+  const [packResults, setPackResults] = useState<ModpackHit[]>([])
+  const [packSearching, setPackSearching] = useState(false)
+  const [packError, setPackError] = useState('')
+  const [packInstalling, setPackInstalling] = useState<string | null>(null)
+  const packDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    api.modpacks.getMeta(instanceId).then(setModpackMeta).catch(() => setModpackMeta(null))
+  }, [instanceId])
+
+  const packFileSet = new Set((modpackMeta?.mod_files ?? []).map((f) => f.toLowerCase()))
+  const isPackMod = (name: string) => packFileSet.has(baseFilename(name).toLowerCase())
+
+  const runPackSearch = async (q: string) => {
+    setPackSearching(true)
+    setPackError('')
+    try {
+      setPackResults(await searchModrinthModpacks(q))
+    } catch {
+      setPackError('Impossible de joindre Modrinth')
+    } finally {
+      setPackSearching(false)
+    }
+  }
+
+  const handlePackQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const q = e.target.value
+    setPackQuery(q)
+    if (packDebounceRef.current) clearTimeout(packDebounceRef.current)
+    packDebounceRef.current = setTimeout(() => runPackSearch(q), 450)
+  }
+
+  const handleInstallModpack = async (hit: ModpackHit) => {
+    setPackInstalling(hit.project_id)
+    setPackError('')
+    try {
+      const file = await resolveModpackFile(hit.project_id)
+      if (!file) throw new Error('Aucun fichier .mrpack disponible')
+      const meta = await api.modpacks.install({
+        instanceId,
+        fileUrl: file.url,
+        projectId: hit.project_id,
+        versionId: file.versionId,
+        name: hit.title,
+        author: hit.author,
+        summary: hit.description,
+        iconUrl: hit.icon_url,
+        versionNumber: file.versionNumber,
+        downloads: hit.downloads,
+        dateModified: hit.date_modified,
+        categories: hit.categories,
+      })
+      setModpackMeta(meta)
+      setTab('installed')
+      delete _modrinthCache[instanceId]
+      await loadMods()
+    } catch (e) {
+      setPackError(e instanceof Error ? e.message : "Erreur lors de l'installation du modpack")
+    } finally {
+      setPackInstalling(null)
+    }
+  }
+
+  const handleRemoveModpack = async () => {
+    setModpackMenuOpen(false)
+    try {
+      await api.modpacks.remove(instanceId)
+      setModpackMeta(null)
+      delete _modrinthCache[instanceId]
+      await loadMods()
+    } catch { /* ignore */ }
+  }
+
+  const handleReplaceModpack = () => {
+    setModpackMenuOpen(false)
+    setTab('modpack')
+  }
+
+  const handleToggleShowPackContent = () => {
+    setModpackMenuOpen(false)
+    setShowPackContent((v) => !v)
+  }
 
   useEffect(() => {
     if (mods.length === 0) return
@@ -318,7 +447,7 @@ export function ModsContent({ instance }: { instance: Instance }) {
       } else {
         fetchVersionsByHash(loaded.map((m) => m.sha1)).then((vd) => {
           mergeVersions(vd)
-          checkForUpdates(loaded, vd, mcVersion, loader).then((upd) => {
+          checkForUpdates(instanceId, loaded, vd, mcVersion, loader, avoidBetaDependencies).then((upd) => {
             setUpdates(upd)
             _modrinthCache[instanceId] = { versionMap: vd, updates: upd }
           })
@@ -336,6 +465,9 @@ export function ModsContent({ instance }: { instance: Instance }) {
   useEffect(() => {
     if (tab === 'browse' && results.length === 0 && !searching) {
       runSearch(query)
+    }
+    if (tab === 'modpack' && packResults.length === 0 && !packSearching) {
+      runPackSearch(packQuery)
     }
   }, [tab])
 
@@ -370,6 +502,15 @@ export function ModsContent({ instance }: { instance: Instance }) {
       setUpdates((prev) => prev.filter((u) => u.mod.sha1 !== update.mod.sha1))
       fetchVersionsByHash([newMod.sha1]).then(mergeVersions)
       delete _modrinthCache[instanceId]
+
+      // Si ce mod fait partie du modpack, on garde la référence à jour dans
+      // modpack.json (sinon le nouveau fichier "tombe" hors du pack).
+      const oldBase = baseFilename(update.mod.name)
+      if (modpackMeta?.mod_files.some((f) => f.toLowerCase() === oldBase.toLowerCase())) {
+        api.modpacks.renameFile(instanceId, oldBase, newMod.name).then((meta) => {
+          if (meta) setModpackMeta(meta)
+        }).catch(() => {})
+      }
     } catch { /* ignore */ }
     finally {
       setUpdatingMods((prev) => { const s = new Set(prev); s.delete(update.mod.sha1); return s })
@@ -379,9 +520,18 @@ export function ModsContent({ instance }: { instance: Instance }) {
   const handleUpdateAll = async () => {
     if (updatingAll) return
     setUpdatingAll(true)
-    const pending = [...updates]
+    const pending = updates.filter((u) => u.blockedBy.length === 0 && !isPackMod(u.mod.name))
     for (const update of pending) await handleUpdateMod(update)
     setUpdatingAll(false)
+  }
+
+  const handleUpdateAllPack = async () => {
+    if (updatingPackAll) return
+    setModpackMenuOpen(false)
+    setUpdatingPackAll(true)
+    const pending = updates.filter((u) => u.blockedBy.length === 0 && isPackMod(u.mod.name))
+    for (const update of pending) await handleUpdateMod(update)
+    setUpdatingPackAll(false)
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -401,6 +551,31 @@ export function ModsContent({ instance }: { instance: Instance }) {
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  /**
+   * OptiFine interdit toute redistribution sans permission écrite de son
+   * auteur (cf. https://optifine.net/copyright) — on ne le télécharge donc
+   * jamais nous-mêmes. Premier clic : ouvre la vraie page officielle pour
+   * que l'utilisateur télécharge lui-même. Reclic (après téléchargement) :
+   * récupère le jar depuis son dossier Téléchargements et l'installe.
+   */
+  const handleImportOptifine = async () => {
+    if (importingOptifine) return
+    setImportingOptifine(true)
+    setModsError('')
+    try {
+      const newMod = await api.mods.importOptifine(instanceId)
+      setMods((prev) =>
+        [...prev.filter((m) => m.name !== newMod.name), newMod]
+          .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
+      )
+    } catch {
+      await open('https://optifine.net/downloads')
+      setModsError('Télécharge OptiFine depuis l’onglet qui vient de s’ouvrir, puis reclique sur "Ajouter OptiFine".')
+    } finally {
+      setImportingOptifine(false)
     }
   }
 
@@ -441,11 +616,14 @@ export function ModsContent({ instance }: { instance: Instance }) {
       fetchVersionsByHash([newMod.sha1]).then(mergeVersions)
       delete _modrinthCache[instanceId]
     } catch (e) {
-      setSearchError(e instanceof Error ? e.message : 'Erreur installation')
+      setSearchError(e instanceof Error ? e.message : typeof e === 'string' ? e : 'Erreur installation')
     } finally {
       setInstalling(null)
     }
   }
+
+  const extraUpdatesCount = updates.filter((u) => u.blockedBy.length === 0 && !isPackMod(u.mod.name)).length
+  const packUpdatesCount = updates.filter((u) => u.blockedBy.length === 0 && isPackMod(u.mod.name)).length
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -467,11 +645,11 @@ export function ModsContent({ instance }: { instance: Instance }) {
           >
             {`Installés (${mods.length})`}
           </button>
-          {tab === 'installed' && updates.length > 0 && (
+          {tab === 'installed' && extraUpdatesCount > 0 && (
             <button
               onClick={handleUpdateAll}
               disabled={updatingAll}
-              title="Tout mettre à jour"
+              title="Tout mettre à jour (contenu supplémentaire uniquement)"
               className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all duration-150"
               style={{
                 background: updatingAll ? 'rgba(255,255,255,0.04)' : 'rgba(250,204,21,0.12)',
@@ -483,7 +661,7 @@ export function ModsContent({ instance }: { instance: Instance }) {
               <svg viewBox="0 0 24 24" fill="currentColor" width={11} height={11}>
                 <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
               </svg>
-              {updatingAll ? '...' : updates.length}
+              {updatingAll ? '...' : extraUpdatesCount}
             </button>
           )}
         </div>
@@ -509,6 +687,24 @@ export function ModsContent({ instance }: { instance: Instance }) {
             {isPlugin ? 'Parcourir les plugins' : 'Parcourir Modrinth'}
           </button>
           <button
+            onClick={() => setTab('modpack')}
+            className="flex items-center gap-1.5 font-semibold transition-all duration-150"
+            style={{
+              height: 32, paddingLeft: 14, paddingRight: 14, fontSize: 12, border: 'none',
+              borderRight: '1px solid rgba(75,63,207,0.35)',
+              background: tab === 'modpack' ? 'rgba(75,63,207,0.25)' : 'transparent',
+              color: tab === 'modpack' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.55)',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={(e) => { if (tab !== 'modpack') e.currentTarget.style.background = 'rgba(75,63,207,0.12)' }}
+            onMouseLeave={(e) => { if (tab !== 'modpack') e.currentTarget.style.background = 'transparent' }}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" width={13} height={13}>
+              <path d="M12 2L1 9l11 7 9-5.73V17h2V9L12 2zM3 13.18v4.91L12 23l9-4.91v-4.91l-9 5.73-9-5.73z" />
+            </svg>
+            {modpackMeta ? 'Remplacer le modpack' : 'Installer un modpack'}
+          </button>
+          <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
             className="flex items-center gap-1.5 font-semibold transition-all duration-150 active:scale-95"
@@ -526,6 +722,28 @@ export function ModsContent({ instance }: { instance: Instance }) {
             </svg>
             {uploading ? 'Import...' : isPlugin ? 'Importer un plugin' : 'Importer un mod'}
           </button>
+          {loader === 'forge' && (
+            <button
+              onClick={handleImportOptifine}
+              disabled={importingOptifine}
+              className="flex items-center gap-1.5 font-semibold transition-all duration-150 active:scale-95"
+              style={{
+                height: 32, paddingLeft: 14, paddingRight: 14, fontSize: 12, border: 'none',
+                borderLeft: '1px solid rgba(75,63,207,0.35)',
+                background: importingOptifine ? 'rgba(40,38,65,0.7)' : 'transparent',
+                color: importingOptifine ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.55)',
+                cursor: importingOptifine ? 'not-allowed' : 'pointer',
+              }}
+              onMouseEnter={(e) => { if (!importingOptifine) e.currentTarget.style.background = 'rgba(75,63,207,0.12)' }}
+              onMouseLeave={(e) => { if (!importingOptifine) e.currentTarget.style.background = 'transparent' }}
+              title="Ouvre le site officiel OptiFine ; reclique une fois téléchargé pour l'ajouter automatiquement à cette instance"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" width={13} height={13}>
+                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
+              </svg>
+              {importingOptifine ? 'Import...' : 'Ajouter OptiFine'}
+            </button>
+          )}
         </div>
         <input ref={fileInputRef} type="file" accept=".jar" className="hidden" onChange={handleFileChange} />
 
@@ -539,9 +757,26 @@ export function ModsContent({ instance }: { instance: Instance }) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-3">
+        {modpackMeta && (
+          <ModpackBanner
+            meta={modpackMeta}
+            menuOpen={modpackMenuOpen}
+            showPackContent={showPackContent}
+            packUpdatesCount={packUpdatesCount}
+            updatingPackAll={updatingPackAll}
+            onToggleMenu={() => setModpackMenuOpen((v) => !v)}
+            onReplace={handleReplaceModpack}
+            onRemove={handleRemoveModpack}
+            onToggleShowContent={handleToggleShowPackContent}
+            onUpdateAllPack={handleUpdateAllPack}
+          />
+        )}
+
         {tab === 'installed' ? (
           <InstalledTab
             mods={mods}
+            modpackMeta={modpackMeta}
+            showPackContent={showPackContent}
             loading={loadingMods}
             error={modsError}
             isPlugin={isPlugin}
@@ -556,8 +791,10 @@ export function ModsContent({ instance }: { instance: Instance }) {
             onToggle={handleToggle}
             onDelete={handleDelete}
             onUpdateMod={handleUpdateMod}
+            onBrowseExtra={() => setTab('modpack')}
+            onUploadExtra={() => fileInputRef.current?.click()}
           />
-        ) : (
+        ) : tab === 'browse' ? (
           <BrowseTab
             query={query}
             results={results}
@@ -568,6 +805,16 @@ export function ModsContent({ instance }: { instance: Instance }) {
             isPlugin={isPlugin}
             onQueryChange={handleQueryChange}
             onInstall={handleInstall}
+          />
+        ) : (
+          <ModpackBrowseTab
+            query={packQuery}
+            results={packResults}
+            searching={packSearching}
+            error={packError}
+            installing={packInstalling}
+            onQueryChange={handlePackQueryChange}
+            onInstall={handleInstallModpack}
           />
         )}
       </div>
@@ -625,10 +872,12 @@ export default function Mods() {
 // ── Installed tab ─────────────────────────────────────────────────────────────
 
 function InstalledTab({
-  mods, loading, error, isPlugin, modSearch, onModSearch, logoCache, versionMap,
-  updates, updatingMods, updatingAll, onReload, onToggle, onDelete, onUpdateMod,
+  mods, modpackMeta, showPackContent, loading, error, isPlugin, modSearch, onModSearch, logoCache, versionMap,
+  updates, updatingMods, updatingAll, onReload, onToggle, onDelete, onUpdateMod, onBrowseExtra, onUploadExtra,
 }: {
   mods: Mod[]
+  modpackMeta: ModpackMeta | null
+  showPackContent: boolean
   loading: boolean
   error: string
   isPlugin: boolean
@@ -643,6 +892,8 @@ function InstalledTab({
   onToggle: (mod: Mod) => void
   onDelete: (name: string) => void
   onUpdateMod: (u: ModUpdate) => void
+  onBrowseExtra: () => void
+  onUploadExtra: () => void
 }) {
   if (loading) return <Spinner />
   if (error) return <ErrorState message={error} onRetry={onReload} />
@@ -653,28 +904,124 @@ function InstalledTab({
 
   const hdr: React.CSSProperties = { fontSize: 10, color: 'rgba(255,255,255,0.28)', textTransform: 'uppercase', letterSpacing: '0.09em', fontWeight: 600 }
 
+  const renderHeader = () => (
+    <div
+      className="flex items-center rounded-2xl px-4 py-1.5"
+      style={{ position: 'sticky', top: -12, zIndex: 10, background: '#09090D', border: '1px solid rgba(255,255,255,0.08)', marginBottom: 8 }}
+    >
+      <div className="flex items-center gap-3 min-w-0" style={{ flex: 1 }}>
+        <div style={{ width: 36, flexShrink: 0 }} />
+        <div className="min-w-0 flex-1"><span style={hdr}>Mod</span></div>
+      </div>
+      <div style={{ flexShrink: 0, width: 110, textAlign: 'center', padding: '0 8px' }}>
+        <span style={hdr}>Version</span>
+      </div>
+      <div className="flex items-center justify-end gap-2" style={{ flex: 1 }}>
+        <span style={hdr}>Action</span>
+      </div>
+    </div>
+  )
+
+  const renderRow = (mod: Mod) => {
+    const update = updates.find((u) => u.mod.sha1 === mod.sha1) ?? null
+    return (
+      <ModRow
+        key={mod.name}
+        mod={mod}
+        version={versionMap[mod.sha1]?.version ?? null}
+        modrinthName={versionMap[mod.sha1]?.modrinthName || null}
+        update={update}
+        updating={updatingMods.has(mod.sha1) || updatingAll}
+        logoUrl={logoCache[displayName(mod.name)] ?? null}
+        onToggle={() => onToggle(mod)}
+        onDelete={() => onDelete(mod.name)}
+        onUpdate={() => update && onUpdateMod(update)}
+      />
+    )
+  }
+
+  const searchBar = mods.length > 0 && (
+    <div className="relative mb-3">
+      <svg viewBox="0 0 24 24" fill="currentColor" width={14} height={14}
+        className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+        style={{ color: 'rgba(255,255,255,0.3)' }}>
+        <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+      </svg>
+      <input
+        type="text"
+        placeholder="Filtrer les mods..."
+        value={modSearch}
+        onChange={(e) => onModSearch(e.target.value)}
+        className="w-full rounded-xl pl-8 pr-4 text-sm text-white outline-none"
+        style={{ height: 36, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+        onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(75,63,207,0.6)' }}
+        onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
+      />
+    </div>
+  )
+
+  if (modpackMeta) {
+    const packFiles = new Set(modpackMeta.mod_files.map((f) => f.toLowerCase()))
+    const packMods = filtered.filter((m) => packFiles.has(baseFilename(m.name).toLowerCase()))
+    const extraMods = filtered.filter((m) => !packFiles.has(baseFilename(m.name).toLowerCase()))
+    const sectionHdrStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }
+
+    return (
+      <div>
+        {searchBar}
+
+        {showPackContent && packMods.length > 0 && (
+          <div className="mb-5">
+            <p style={sectionHdrStyle}>Contenu du modpack ({packMods.length})</p>
+            {renderHeader()}
+            <div className="flex flex-col gap-2">{packMods.map(renderRow)}</div>
+          </div>
+        )}
+
+        <div>
+          <p style={sectionHdrStyle}>Contenu supplémentaire ({extraMods.length})</p>
+          {extraMods.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-4 rounded-2xl py-12" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <PlugIcon size={26} color="rgba(255,255,255,0.15)" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold" style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>Aucun contenu supplémentaire</p>
+                <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 12, marginTop: 4 }}>Ajoutez du contenu en plus de ce modpack</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={onUploadExtra}
+                  className="flex items-center gap-1.5 rounded-xl font-semibold transition-all duration-150"
+                  style={{ height: 34, padding: '0 14px', fontSize: 12, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.1)' }}
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" width={13} height={13}><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+                  Importer un fichier
+                </button>
+                <button
+                  onClick={onBrowseExtra}
+                  className="flex items-center gap-1.5 rounded-xl font-semibold transition-all duration-150"
+                  style={{ height: 34, padding: '0 14px', fontSize: 12, background: 'rgba(75,63,207,0.3)', color: 'white', border: '1px solid rgba(75,63,207,0.5)' }}
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" width={13} height={13}><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
+                  Parcourir le contenu
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {renderHeader()}
+              <div className="flex flex-col gap-2">{extraMods.map(renderRow)}</div>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div>
-      {/* Barre de recherche */}
-      {mods.length > 0 && (
-        <div className="relative mb-3">
-          <svg viewBox="0 0 24 24" fill="currentColor" width={14} height={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-            style={{ color: 'rgba(255,255,255,0.3)' }}>
-            <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Filtrer les mods..."
-            value={modSearch}
-            onChange={(e) => onModSearch(e.target.value)}
-            className="w-full rounded-xl pl-8 pr-4 text-sm text-white outline-none"
-            style={{ height: 36, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
-            onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(75,63,207,0.6)' }}
-            onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
-          />
-        </div>
-      )}
+      {searchBar}
 
       {/* États vides */}
       {filtered.length === 0 && mods.length === 0 && (
@@ -692,44 +1039,165 @@ function InstalledTab({
         </p>
       )}
 
-      {/* En-tête tableur — structure DOM identique au ModRow pour alignement parfait */}
-      {filtered.length > 0 && (
-        <div
-          className="flex items-center rounded-2xl px-4 py-1.5"
-          style={{ position: 'sticky', top: -12, zIndex: 10, background: '#09090D', border: '1px solid rgba(255,255,255,0.08)', marginBottom: 8 }}
-        >
-          <div className="flex items-center gap-3 min-w-0" style={{ flex: 1 }}>
-            <div style={{ width: 36, flexShrink: 0 }} />
-            <div className="min-w-0 flex-1"><span style={hdr}>Mod</span></div>
-          </div>
-          <div style={{ flexShrink: 0, width: 110, textAlign: 'center', padding: '0 8px' }}>
-            <span style={hdr}>Version</span>
-          </div>
-          <div className="flex items-center justify-end gap-2" style={{ flex: 1 }}>
-            <span style={hdr}>Action</span>
+      {filtered.length > 0 && renderHeader()}
+
+      <div className="flex flex-col gap-2">{filtered.map(renderRow)}</div>
+    </div>
+  )
+}
+
+// ── Modpack banner + browse ─────────────────────────────────────────────────────
+
+function ModpackBanner({
+  meta, menuOpen, showPackContent, packUpdatesCount, updatingPackAll,
+  onToggleMenu, onReplace, onRemove, onToggleShowContent, onUpdateAllPack,
+}: {
+  meta: ModpackMeta
+  menuOpen: boolean
+  showPackContent: boolean
+  packUpdatesCount: number
+  updatingPackAll: boolean
+  onToggleMenu: () => void
+  onReplace: () => void
+  onRemove: () => void
+  onToggleShowContent: () => void
+  onUpdateAllPack: () => void
+}) {
+  return (
+    <div className="relative mb-4 rounded-2xl px-4 py-3.5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+      <div className="flex items-start gap-3">
+        <div style={{ width: 48, height: 48, borderRadius: 12, flexShrink: 0, overflow: 'hidden', background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {meta.icon_url ? <img src={meta.icon_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <PlugIcon size={22} color="rgba(255,255,255,0.2)" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-bold truncate" style={{ fontSize: 14, color: 'white' }}>{meta.name}</p>
+          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 1 }}>
+            {meta.author} · {meta.version_number} · {formatRelativeDate(meta.date_modified)}
+          </p>
+          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 6 }}>{meta.summary}</p>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="flex items-center gap-1" style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
+              <svg viewBox="0 0 24 24" fill="currentColor" width={11} height={11}><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" /></svg>
+              {meta.downloads.toLocaleString('fr-FR')}
+            </span>
+            {meta.categories.slice(0, 3).map((c) => (
+              <span key={c} className="rounded-full px-2 py-0.5" style={{ fontSize: 10, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)' }}>{c}</span>
+            ))}
           </div>
         </div>
+        <div className="relative flex-shrink-0">
+          <button
+            onClick={onToggleMenu}
+            className="flex h-7 w-7 items-center justify-center rounded-lg transition-all duration-150"
+            style={{ color: 'rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.05)' }}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" width={14} height={14}><path d="M12 8a2 2 0 100-4 2 2 0 000 4zm0 2a2 2 0 100 4 2 2 0 000-4zm0 8a2 2 0 100 4 2 2 0 000-4z" /></svg>
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-9 z-20 flex flex-col gap-0.5 rounded-xl p-1" style={{ width: 190, background: '#191923', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 12px 30px rgba(0,0,0,0.5)' }}>
+              <button onClick={onToggleShowContent} className="rounded-lg px-3 py-2 text-left transition-all duration-150" style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}>
+                {showPackContent ? 'Masquer le contenu' : 'Afficher le contenu'}
+              </button>
+              {packUpdatesCount > 0 && (
+                <button onClick={onUpdateAllPack} disabled={updatingPackAll} className="flex items-center justify-between rounded-lg px-3 py-2 text-left transition-all duration-150" style={{ fontSize: 12, color: updatingPackAll ? 'rgba(255,255,255,0.3)' : 'rgba(250,204,21,0.9)', cursor: updatingPackAll ? 'not-allowed' : 'pointer' }}
+                  onMouseEnter={(e) => { if (!updatingPackAll) e.currentTarget.style.background = 'rgba(250,204,21,0.1)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}>
+                  <span>Mettre à jour le pack</span>
+                  <span style={{ fontWeight: 700 }}>{updatingPackAll ? '...' : packUpdatesCount}</span>
+                </button>
+              )}
+              <button onClick={onReplace} className="rounded-lg px-3 py-2 text-left transition-all duration-150" style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}>
+                Remplacer le modpack
+              </button>
+              <button onClick={onRemove} className="rounded-lg px-3 py-2 text-left transition-all duration-150" style={{ fontSize: 12, color: 'rgb(248,113,113)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(200,50,50,0.12)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}>
+                Retirer le modpack (désinstalle ses mods)
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ModpackBrowseTab({ query, results, searching, error, installing, onQueryChange, onInstall }: {
+  query: string
+  results: ModpackHit[]
+  searching: boolean
+  error: string
+  installing: string | null
+  onQueryChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onInstall: (hit: ModpackHit) => void
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="relative">
+        <svg viewBox="0 0 24 24" fill="currentColor" width={15} height={15}
+          className="absolute left-3 top-1/2 -translate-y-1/2"
+          style={{ color: 'rgba(255,255,255,0.3)', pointerEvents: 'none' }}>
+          <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+        </svg>
+        <input
+          type="text"
+          placeholder="Rechercher un modpack..."
+          value={query}
+          onChange={onQueryChange}
+          className="w-full rounded-xl pl-9 pr-4 text-sm text-white outline-none"
+          style={{ height: 40, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+          onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(75,63,207,0.6)' }}
+          onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
+        />
+        {searching && (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin rounded-full border-2"
+            style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'rgba(75,63,207,0.8)' }} />
+        )}
+      </div>
+
+      {error && <p style={{ fontSize: 12, color: 'rgb(248,113,113)' }}>{error}</p>}
+
+      {!searching && results.length === 0 && !error && (
+        <EmptyState
+          icon={<SearchIcon size={28} color="rgba(255,255,255,0.15)" />}
+          title="Aucun résultat"
+          subtitle="Essayez un autre terme de recherche"
+        />
       )}
 
-      {/* Liste des mods */}
       <div className="flex flex-col gap-2">
-        {filtered.map((mod) => {
-          const update = updates.find((u) => u.mod.sha1 === mod.sha1) ?? null
-          return (
-            <ModRow
-              key={mod.name}
-              mod={mod}
-              version={versionMap[mod.sha1]?.version ?? null}
-              modrinthName={versionMap[mod.sha1]?.modrinthName || null}
-              update={update}
-              updating={updatingMods.has(mod.sha1) || updatingAll}
-              logoUrl={logoCache[displayName(mod.name)] ?? null}
-              onToggle={() => onToggle(mod)}
-              onDelete={() => onDelete(mod.name)}
-              onUpdate={() => update && onUpdateMod(update)}
-            />
-          )
-        })}
+        {results.map((hit) => (
+          <div key={hit.project_id} className="flex items-center gap-3 rounded-2xl px-4 py-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, overflow: 'hidden', background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {hit.icon_url ? <img src={hit.icon_url} alt={hit.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <PlugIcon size={20} color="rgba(255,255,255,0.2)" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold text-white" style={{ fontSize: 13 }}>{hit.title}</p>
+              <p className="truncate" style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{hit.description}</p>
+              <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 3 }}>par {hit.author} · {formatDownloads(hit.downloads)} téléchargements</p>
+            </div>
+            <button
+              onClick={() => onInstall(hit)}
+              disabled={installing === hit.project_id}
+              className="flex-shrink-0 flex items-center gap-1.5 rounded-xl font-semibold transition-all duration-150 active:scale-95"
+              style={{
+                height: 32, paddingLeft: 14, paddingRight: 14, fontSize: 12,
+                background: installing === hit.project_id ? 'rgba(40,38,65,0.7)' : 'rgba(75,63,207,0.3)',
+                border: '1px solid rgba(75,63,207,0.5)',
+                color: 'rgba(255,255,255,0.85)',
+                cursor: installing === hit.project_id ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {installing === hit.project_id ? (
+                <span className="h-3 w-3 animate-spin rounded-full border-2" style={{ borderColor: 'rgba(255,255,255,0.15)', borderTopColor: 'white' }} />
+              ) : 'Installer'}
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -846,30 +1314,41 @@ function ModRow({ mod, version, modrinthName, update, updating, logoUrl, onToggl
 
       {/* Section droite : actions (flex-1, alignées à droite) */}
       <div className="flex items-center justify-end gap-2" style={{ flex: 1 }}>
-        {update && (
-          <button
-            onClick={onUpdate}
-            disabled={updating}
-            title={`Mettre à jour → ${update.newVersion}`}
-            className="flex h-7 flex-shrink-0 items-center gap-1 rounded-lg px-2 transition-all duration-150"
-            style={{
-              fontSize: 10, fontWeight: 700,
-              background: updating ? 'rgba(255,255,255,0.04)' : 'rgba(250,204,21,0.12)',
-              border: '1px solid rgba(250,204,21,0.28)',
-              color: updating ? 'rgba(255,255,255,0.2)' : 'rgba(250,204,21,0.85)',
-              cursor: updating ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {updating ? (
-              <span className="h-3 w-3 animate-spin rounded-full border-2" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'rgba(250,204,21,0.6)' }} />
-            ) : (
-              <svg viewBox="0 0 24 24" fill="currentColor" width={10} height={10}>
-                <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
-              </svg>
-            )}
-            {update.newVersion}
-          </button>
-        )}
+        {update && (() => {
+          const blocked = update.blockedBy.length > 0
+          return (
+            <button
+              onClick={onUpdate}
+              disabled={updating || blocked}
+              title={
+                blocked
+                  ? `Mise à jour bloquée : casserait ${update.blockedBy.join(', ')}`
+                  : `Mettre à jour → ${update.newVersion}`
+              }
+              className="flex h-7 flex-shrink-0 items-center gap-1 rounded-lg px-2 transition-all duration-150"
+              style={{
+                fontSize: 10, fontWeight: 700,
+                background: blocked ? 'rgba(248,113,113,0.1)' : updating ? 'rgba(255,255,255,0.04)' : 'rgba(250,204,21,0.12)',
+                border: blocked ? '1px solid rgba(248,113,113,0.28)' : '1px solid rgba(250,204,21,0.28)',
+                color: blocked ? 'rgba(248,113,113,0.7)' : updating ? 'rgba(255,255,255,0.2)' : 'rgba(250,204,21,0.85)',
+                cursor: updating || blocked ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {blocked ? (
+                <svg viewBox="0 0 24 24" fill="currentColor" width={10} height={10}>
+                  <path d="M12 2L1 21h22L12 2zm0 4.5L19.5 19h-15L12 6.5zM11 10v5h2v-5h-2zm0 6v2h2v-2h-2z" />
+                </svg>
+              ) : updating ? (
+                <span className="h-3 w-3 animate-spin rounded-full border-2" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'rgba(250,204,21,0.6)' }} />
+              ) : (
+                <svg viewBox="0 0 24 24" fill="currentColor" width={10} height={10}>
+                  <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
+                </svg>
+              )}
+              {update.newVersion}
+            </button>
+          )
+        })()}
         <button onClick={onToggle} title={mod.enabled ? 'Désactiver' : 'Activer'}
           className="relative flex-shrink-0"
           style={{ width: 40, height: 22, borderRadius: 11, background: mod.enabled ? '#4B3FCF' : 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer' }}>

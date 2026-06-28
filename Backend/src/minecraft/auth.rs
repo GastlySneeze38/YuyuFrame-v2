@@ -180,11 +180,17 @@ pub async fn start_device_auth() -> Result<DeviceCodeResponse> {
 /// Polls Microsoft. Returns None if still pending, Some(session) on success.
 pub async fn poll_device_auth(device_code: &str) -> Result<Option<MinecraftSession>> {
     let client = reqwest::Client::new();
+    // Pas de redirect_uri ici : la requête de polling du device code grant
+    // n'en a jamais besoin (l'auth se fait sur un autre appareil/onglet) —
+    // confirmé contre ce même endpoint login.live.com par gophertunnel
+    // (lib d'auth Minecraft tierce établie). En l'envoyant quand même, MS
+    // semble toujours répondre "authorization_pending", même après que
+    // l'utilisateur a réellement validé — ce qui bloquait la connexion en
+    // boucle infinie côté launcher.
     let params = [
         ("client_id", MS_CLIENT_ID),
         ("device_code", device_code),
         ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-        ("redirect_uri", MS_REDIRECT_URI),
     ];
     let raw = client
         .post(TOKEN_URL)

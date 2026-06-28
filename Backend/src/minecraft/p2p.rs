@@ -292,11 +292,11 @@ fn transform_for_local_clients(json: &str) -> String {
     json.to_string()
 }
 
-// ── Mappings Mojang ───────────────────────────────────────────────────────────
+// ── Yarn Mappings (Fabric) ────────────────────────────────────────────────────
 
-/// Télécharge (si absent) et retourne le chemin vers `client-mappings-<ver>.txt`.
-/// Remplace l'ancien `ensure_mapped_jar` — plus besoin de remapper.jar.
-pub async fn ensure_mappings(
+/// Télécharge (si absent) et retourne le chemin vers le JAR Yarn mergedv2.
+/// Essaie la version MC exacte, puis des variantes simplifiées en fallback.
+pub async fn ensure_yarn_mappings(
     version: &str,
     client: &reqwest::Client,
     app: &tauri::AppHandle,
@@ -304,51 +304,76 @@ pub async fn ensure_mappings(
     let cache_dir = p2p_dir().join("cache");
     tokio::fs::create_dir_all(&cache_dir).await?;
 
-    let mappings = cache_dir.join(format!("client-mappings-{}.txt", version));
-    if mappings.exists() {
-        tracing::info!("[P2P] Mappings en cache : {}", mappings.display());
-        return Ok(mappings);
+    for mc_ver in yarn_version_candidates(version) {
+        let jar_path = cache_dir.join(format!("yarn-{}-mergedv2.jar", mc_ver));
+        if jar_path.exists() {
+            tracing::info!("[P2P] Yarn en cache : {}", jar_path.display());
+            return Ok(jar_path);
+        }
+        match download_yarn(&mc_ver, &jar_path, client, app).await {
+            Ok(_) => return Ok(jar_path),
+            Err(e) => {
+                tracing::warn!("[P2P] Yarn {} introuvable: {}", mc_ver, e);
+                tokio::fs::remove_file(&jar_path).await.ok();
+            }
+        }
     }
 
-    download_mappings(version, &mappings, client, app).await?;
-    Ok(mappings)
+    Err(anyhow!("Aucun mapping Yarn disponible pour MC {}", version))
 }
 
-async fn download_mappings(
-    version: &str,
+/// "1.21.11" → ["1.21.11", "1.21.1", "1.21"]
+fn yarn_version_candidates(version: &str) -> Vec<String> {
+    let mut candidates = vec![version.to_string()];
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() == 3 {
+        if parts[2].len() > 1 {
+            candidates.push(format!("{}.{}.1", parts[0], parts[1]));
+        }
+        candidates.push(format!("{}.{}", parts[0], parts[1]));
+    }
+    let mut seen = std::collections::HashSet::new();
+    candidates.retain(|v| seen.insert(v.clone()));
+    candidates
+}
+
+async fn download_yarn(
+    mc_version: &str,
     dest: &Path,
     client: &reqwest::Client,
     app: &tauri::AppHandle,
 ) -> Result<()> {
-    tracing::info!("[P2P] Téléchargement des mappings Mojang pour {}...", version);
+    // Récupérer le dernier build Yarn pour cette version MC
+    let meta_url = format!("https://meta.fabricmc.net/v2/versions/yarn/{}", mc_version);
+    let resp = client.get(&meta_url).send().await?;
+    if !resp.status().is_success() {
+        return Err(anyhow!("Fabric Meta: HTTP {} pour MC {}", resp.status(), mc_version));
+    }
+    let builds: serde_json::Value = resp.json().await?;
+
+    let yarn_version = builds.as_array()
+        .and_then(|a| a.first())
+        .and_then(|b| b["version"].as_str())
+        .ok_or_else(|| anyhow!("Aucun build Yarn pour MC {}", mc_version))?
+        .to_owned();
+
+    tracing::info!("[P2P] Yarn MC {} → {}", mc_version, yarn_version);
     let _ = app.emit("download_progress", serde_json::json!({
         "current": 0, "total": 100,
-        "message": format!("P2P : mappings Mojang {}...", version)
+        "message": format!("P2P : Yarn mappings {}...", yarn_version)
     }));
 
-    let manifest: serde_json::Value = client
-        .get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json")
-        .send().await?.json().await?;
+    let jar_url = format!(
+        "https://maven.fabricmc.net/net/fabricmc/yarn/{}/yarn-{}-mergedv2.jar",
+        yarn_version, yarn_version
+    );
+    tracing::info!("[P2P] Téléchargement Yarn : {}", jar_url);
 
-    let ver_url = manifest["versions"]
-        .as_array()
-        .and_then(|a| a.iter().find(|v| v["id"].as_str() == Some(version)))
-        .and_then(|v| v["url"].as_str())
-        .ok_or_else(|| anyhow!("Version {} introuvable dans le manifest Mojang", version))?
-        .to_owned();
-
-    let ver_data: serde_json::Value = client.get(&ver_url).send().await?.json().await?;
-
-    let url = ver_data["downloads"]["client_mappings"]["url"]
-        .as_str()
-        .ok_or_else(|| anyhow!(
-            "Pas de client_mappings pour {} — version < 1.14.4 non supportée", version
-        ))?
-        .to_owned();
-
-    tracing::info!("[P2P] Mappings URL : {}", url);
-    let bytes = client.get(&url).send().await?.bytes().await?;
+    let bytes = client.get(&jar_url).send().await?.bytes().await?;
+    if bytes.is_empty() {
+        return Err(anyhow!("Yarn JAR vide pour {}", yarn_version));
+    }
     tokio::fs::write(dest, &bytes).await?;
-    tracing::info!("[P2P] Mappings → {}", dest.display());
+    tracing::info!("[P2P] Yarn → {} ({} octets)", dest.display(), bytes.len());
     Ok(())
 }

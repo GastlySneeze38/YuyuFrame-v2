@@ -13,6 +13,7 @@ pub struct Instance {
     pub loader: String,
     pub ram_mb: u32,
     pub favorite: bool,
+    pub description: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -22,15 +23,18 @@ struct InstanceMeta {
     mc_version: String,
     loader: String,
     ram_mb: u32,
+    #[serde(default)]
+    description: String,
 }
 
-fn write_meta(id: &str, name: &str, mc_version: &str, loader: &str, ram_mb: u32) {
+fn write_meta(id: &str, name: &str, mc_version: &str, loader: &str, ram_mb: u32, description: &str) {
     let meta = InstanceMeta {
         id: id.to_string(),
         name: name.to_string(),
         mc_version: mc_version.to_string(),
         loader: loader.to_string(),
         ram_mb,
+        description: description.to_string(),
     };
     if let Ok(json) = serde_json::to_string_pretty(&meta) {
         let _ = std::fs::write(instance_dir(id).join("meta.json"), json);
@@ -56,7 +60,7 @@ fn gen_id() -> String {
 }
 
 fn row_to_instance(r: db::InstanceRow) -> Instance {
-    Instance { id: r.id, name: r.name, mc_version: r.mc_version, loader: r.loader, ram_mb: r.ram_mb, favorite: r.favorite }
+    Instance { id: r.id, name: r.name, mc_version: r.mc_version, loader: r.loader, ram_mb: r.ram_mb, favorite: r.favorite, description: r.description }
 }
 
 fn user_id(s: &crate::state::AppState) -> i64 {
@@ -80,22 +84,24 @@ pub async fn instance_create(
     mc_version: String,
     loader: String,
     ram_mb: u32,
+    description: Option<String>,
 ) -> Result<Instance, String> {
     if name.trim().is_empty() {
         return Err("Le nom de l'instance est requis".into());
     }
+    let description = description.unwrap_or_default().trim().to_string();
     let id = gen_id();
     tokio::fs::create_dir_all(instance_dir(&id))
         .await
         .map_err(|e| e.to_string())?;
     let name = name.trim().to_string();
-    write_meta(&id, &name, &mc_version, &loader, ram_mb);
+    write_meta(&id, &name, &mc_version, &loader, ram_mb, &description);
     let s = state.read().await;
     let uid = user_id(&s);
     let db = s.db.lock().await;
-    db::instance_insert(&db, &id, uid, &name, &mc_version, &loader, ram_mb)
+    db::instance_insert(&db, &id, uid, &name, &mc_version, &loader, ram_mb, &description)
         .map_err(|e| e.to_string())?;
-    Ok(Instance { id, name, mc_version, loader, ram_mb, favorite: false })
+    Ok(Instance { id, name, mc_version, loader, ram_mb, favorite: false, description })
 }
 
 #[tauri::command]
@@ -142,14 +148,16 @@ pub async fn instance_update(
     mc_version: String,
     loader: String,
     ram_mb: u32,
+    description: Option<String>,
 ) -> Result<Instance, String> {
     let name = name.trim().to_string();
+    let description = description.unwrap_or_default().trim().to_string();
     let s = state.read().await;
     let uid = user_id(&s);
     let db = s.db.lock().await;
-    db::instance_update(&db, &id, uid, &name, &mc_version, &loader, ram_mb)
+    db::instance_update(&db, &id, uid, &name, &mc_version, &loader, ram_mb, &description)
         .map_err(|e| e.to_string())?;
-    write_meta(&id, &name, &mc_version, &loader, ram_mb);
+    write_meta(&id, &name, &mc_version, &loader, ram_mb, &description);
     let row = db::instance_get(&db, &id, uid)
         .map_err(|e| e.to_string())?
         .ok_or("Instance introuvable")?;
@@ -197,15 +205,15 @@ pub async fn instance_duplicate(
         }
     }
 
-    write_meta(&new_id, &name, &mc_version, &loader, ram_mb);
+    write_meta(&new_id, &name, &mc_version, &loader, ram_mb, "");
 
     let s = state.read().await;
     let uid = user_id(&s);
     let db = s.db.lock().await;
-    db::instance_insert(&db, &new_id, uid, &name, &mc_version, &loader, ram_mb)
+    db::instance_insert(&db, &new_id, uid, &name, &mc_version, &loader, ram_mb, "")
         .map_err(|e| e.to_string())?;
 
-    Ok(Instance { id: new_id, name, mc_version, loader, ram_mb, favorite: false })
+    Ok(Instance { id: new_id, name, mc_version, loader, ram_mb, favorite: false, description: String::new() })
 }
 
 /// Synchronise la DB avec les dossiers réels au démarrage.
@@ -256,7 +264,7 @@ pub async fn instance_startup_sync(
                 let meta_path = instances_root.join(&id).join("meta.json");
                 if let Ok(json) = std::fs::read_to_string(&meta_path) {
                     if let Ok(meta) = serde_json::from_str::<InstanceMeta>(&json) {
-                        db::instance_insert(&db, &meta.id, uid, &meta.name, &meta.mc_version, &meta.loader, meta.ram_mb).ok();
+                        db::instance_insert(&db, &meta.id, uid, &meta.name, &meta.mc_version, &meta.loader, meta.ram_mb, &meta.description).ok();
                     }
                 }
                 // Pas de meta.json → on laisse le dossier, impossible d'importer

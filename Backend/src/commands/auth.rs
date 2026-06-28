@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::{db, minecraft::auth, state::SharedState};
+use crate::{db, minecraft::auth, state::SharedState, BETA_TEST};
 
 #[derive(Serialize)]
 pub struct DeviceAuthResponse {
@@ -27,7 +27,7 @@ pub struct PollResponse {
 pub async fn auth_start_device(
     state: tauri::State<'_, SharedState>,
 ) -> Result<DeviceAuthResponse, String> {
-    if state.read().await.yuyu_session.is_none() {
+    if !BETA_TEST && state.read().await.yuyu_session.is_none() {
         return Err("Non authentifié sur YuyuFrame".into());
     }
 
@@ -56,6 +56,10 @@ pub async fn auth_poll(state: tauri::State<'_, SharedState>) -> Result<PollRespo
         let s = state.read().await;
         match &s.yuyu_session {
             Some(y) => y.user_id,
+            // En beta, pas de compte YuyuFrame requis — 0 est déjà le
+            // placeholder "pas de compte" utilisé par le schéma (cf. table
+            // `instances`, colonne yuyu_user_id DEFAULT 0).
+            None if BETA_TEST => 0,
             None => {
                 return Ok(PollResponse {
                     status: "error".into(),

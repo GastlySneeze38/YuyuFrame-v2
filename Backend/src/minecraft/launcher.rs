@@ -25,6 +25,16 @@ pub fn minecraft_dir() -> PathBuf {
         .join(".minecraft")
 }
 
+/// Dossier LauncherAgent dans AppData/YuyuFrame/agent/ — séparé de
+/// AppData/YuyuFrame/p2p/ (voir docs/LauncherAgent/index.md).
+/// Doit contenir : launcher-agent.jar, mixin.jar, asm-*.jar, content_core.dll
+fn launcher_agent_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("YuyuFrame")
+        .join("agent")
+}
+
 fn set_progress(app: &tauri::AppHandle, current: u64, total: u64, message: &str) {
     let _ = app.emit("download_progress", DownloadProgress {
         current,
@@ -57,6 +67,7 @@ pub async fn download_and_launch(
     app: tauri::AppHandle,
     state: SharedState,
     p2p: bool,
+    avoid_beta: bool,
     console_label: &str,
 ) -> Result<()> {
     let mc_dir = minecraft_dir();
@@ -261,7 +272,7 @@ pub async fn download_and_launch(
 
     let (main_class, extra_classpath, extra_game_args, extra_jvm_args) =
         match loader.unwrap_or("vanilla") {
-            "fabric" => setup_fabric(version_id, &libraries_dir, &game_dir.join("mods"), &app).await?,
+            "fabric" => setup_fabric(version_id, &libraries_dir, &game_dir.join("mods"), &app, avoid_beta).await?,
             "forge" => setup_forge(version_id, &mc_dir, &libraries_dir, &java, &app).await?,
             _ => (details.main_class.clone(), vec![], vec![], vec![]),
         };
@@ -282,13 +293,16 @@ pub async fn download_and_launch(
             tracing::warn!("[P2P] {} manquant dans {} — JNI désactivé", dll_name, p2p::p2p_dir().display());
         }
 
-        // Télécharger les mappings Mojang (quelques Ko, rapide)
-        let mappings_path = p2p::ensure_mappings(version_id, &client, &app).await?;
+        // Télécharger les mappings Yarn (Fabric mergedv2)
+        let yarn_path = p2p::ensure_yarn_mappings(version_id, &client, &app).await?;
 
         let mixin_jar     = p2p::p2p_dir().join("mixin.jar");
         let agent_jar     = p2p::p2p_dir().join("p2p-agent.jar");
-        let asm_jar       = p2p::p2p_dir().join("asm-9.5.jar");
-        let asm_tree_jar  = p2p::p2p_dir().join("asm-tree-9.5.jar");
+        let asm_jar          = p2p::p2p_dir().join("asm-9.5.jar");
+        let asm_tree_jar     = p2p::p2p_dir().join("asm-tree-9.5.jar");
+        let asm_util_jar     = p2p::p2p_dir().join("asm-util-9.5.jar");
+        let asm_analysis_jar = p2p::p2p_dir().join("asm-analysis-9.5.jar");
+        let asm_commons_jar  = p2p::p2p_dir().join("asm-commons-9.5.jar");
 
         if !mixin_jar.exists() {
             return Err(anyhow!(
@@ -306,13 +320,27 @@ pub async fn download_and_launch(
         // MixinAgent (dans mixin.jar) déclare registerTargetClass(String, ClassNode).
         // Le JVM résout toutes les signatures déclarées au chargement de la classe, donc
         // org.objectweb.asm.tree.ClassNode doit être sur le classpath AVANT que mixin.jar
-        // soit traité comme javaagent. On ajoute asm-9.5.jar et asm-tree-9.5.jar au -cp.
+        // soit traité comme javaagent. On ajoute asm-9.5.jar et asm-tree-9.5.jar au -cp —
+        // SAUF en mode Fabric, où Fabric Loader apporte déjà sa propre copie d'ASM
+        // (généralement plus récente) sur le classpath. En ajouter une deuxième fait
+        // échouer Fabric Knot au démarrage : "duplicate ASM classes found on classpath"
+        // (vu en jeu avec LauncherAgent — voir docs/LauncherAgent/index.md). p2p-agent.jar
+        // ne doit plus jamais embarquer ASM lui-même (cf. build.bat) pour ne pas être,
+        // à lui seul, une troisième source du même conflit.
+        // asm-util/-analysis/-commons sont nécessaires en plus de asm/-tree : Mixin
+        // (DefaultExtensions.create()) référence org.objectweb.asm.util.CheckClassAdapter
+        // dès le bootstrap, même sans activer les checks — son absence provoque un
+        // NoClassDefFoundError immédiat (vu en 1.20.4 vanilla, pas en Fabric où Fabric
+        // Loader apporte déjà sa copie complète d'ASM).
+        let is_fabric = matches!(loader, Some("fabric"));
         let mut extra_cp: Vec<String> = Vec::new();
-        for jar in [&asm_jar, &asm_tree_jar] {
-            if jar.exists() {
-                extra_cp.push(jar.to_string_lossy().to_string());
-            } else {
-                tracing::warn!("[P2P] {} manquant — peut causer NoClassDefFoundError au démarrage", jar.display());
+        if !is_fabric {
+            for jar in [&asm_jar, &asm_tree_jar, &asm_util_jar, &asm_analysis_jar, &asm_commons_jar] {
+                if jar.exists() {
+                    extra_cp.push(jar.to_string_lossy().to_string());
+                } else {
+                    tracing::warn!("[P2P] {} manquant — peut causer NoClassDefFoundError au démarrage", jar.display());
+                }
             }
         }
 
@@ -326,17 +354,85 @@ pub async fn download_and_launch(
         // l'Instrumentation que MixinBootstrap.init() utilisera ensuite.
         let mixin_arg = format!("-javaagent:{}", mixin_jar.display());
         let agent_arg = format!(
-            "-javaagent:{}=peerId={},name={},server=ws://127.0.0.1:{},mappings={}",
+            "-javaagent:{}=peerId={},name={},server=ws://127.0.0.1:{},yarn={}",
             agent_jar.display(), peer_id, session.username, p2p::SIGNALING_PORT,
-            mappings_path.display(),
+            yarn_path.display(),
         );
 
         log_to_console(&app, &console_label, &format!("[P2P] Mixin    : {}", mixin_arg), "out");
         log_to_console(&app, &console_label, &format!("[P2P] Agent    : {}", agent_arg), "out");
-        log_to_console(&app, &console_label, &format!("[P2P] Mappings : {}", mappings_path.display()), "out");
+        log_to_console(&app, &console_label, &format!("[P2P] Yarn     : {}", yarn_path.display()), "out");
         (client_jar.clone(), vec![mixin_arg, agent_arg], extra_cp)
     } else {
         (client_jar.clone(), vec![], vec![])
+    };
+
+    // ── LauncherAgent setup ──────────────────────────────────────────────────
+    // Resource packs Modrinth in-game (voir docs/LauncherAgent/index.md). Agent
+    // totalement indépendant du p2p-agent — actif que P2P soit activé ou non.
+    let (launcher_agent_jvm_args, launcher_agent_extra_cp): (Vec<String>, Vec<String>) = {
+        let mixin_jar    = launcher_agent_dir().join("mixin.jar");
+        let agent_jar    = launcher_agent_dir().join("launcher-agent.jar");
+        let asm_jar          = launcher_agent_dir().join("asm-9.5.jar");
+        let asm_tree_jar     = launcher_agent_dir().join("asm-tree-9.5.jar");
+        let asm_util_jar     = launcher_agent_dir().join("asm-util-9.5.jar");
+        let asm_analysis_jar = launcher_agent_dir().join("asm-analysis-9.5.jar");
+        let asm_commons_jar  = launcher_agent_dir().join("asm-commons-9.5.jar");
+
+        if !agent_jar.exists() {
+            tracing::warn!(
+                "[LauncherAgent] launcher-agent.jar manquant dans {} — resource packs in-game désactivés",
+                launcher_agent_dir().display()
+            );
+            (vec![], vec![])
+        } else if !mixin_jar.exists() {
+            tracing::warn!(
+                "[LauncherAgent] mixin.jar manquant dans {} — resource packs in-game désactivés",
+                launcher_agent_dir().display()
+            );
+            (vec![], vec![])
+        } else {
+            // Mêmes mappings Yarn que le p2p-agent (cache partagé dans
+            // AppData/YuyuFrame/p2p/cache/) — ensure_yarn_mappings() court-circuite
+            // si déjà téléchargées pour cette version, donc pas de double téléchargement.
+            // Sans ce remapper, Mixin tente de résoudre les noms Yarn littéralement
+            // et échoue (ClassNotFoundException) puisque le JAR client est obfusqué.
+            match p2p::ensure_yarn_mappings(version_id, &client, &app).await {
+                Ok(yarn_path) => {
+                    // Même contrainte que pour le p2p-agent : ne pas ajouter notre
+                    // copie d'ASM si Fabric en apporte déjà une (conflit "duplicate
+                    // ASM classes" sinon — voir docs/LauncherAgent/index.md).
+                    // Même contrainte que pour le p2p-agent (voir plus haut) :
+                    // CheckClassAdapter (asm-util) est requis dès le bootstrap Mixin.
+                    let is_fabric = matches!(loader, Some("fabric"));
+                    let mut extra_cp: Vec<String> = Vec::new();
+                    if !is_fabric {
+                        for jar in [&asm_jar, &asm_tree_jar, &asm_util_jar, &asm_analysis_jar, &asm_commons_jar] {
+                            if jar.exists() {
+                                extra_cp.push(jar.to_string_lossy().to_string());
+                            } else {
+                                tracing::warn!("[LauncherAgent] {} manquant — peut causer NoClassDefFoundError au démarrage", jar.display());
+                            }
+                        }
+                    }
+
+                    // mixin.jar DOIT être listé AVANT launcher-agent.jar — même contrainte
+                    // que pour le p2p-agent (MixinAgent.premain() capture l'Instrumentation).
+                    let mixin_arg = format!("-javaagent:{}", mixin_jar.display());
+                    let agent_arg = format!(
+                        "-javaagent:{}=yarn={}",
+                        agent_jar.display(), yarn_path.display(),
+                    );
+                    log_to_console(&app, &console_label, &format!("[LauncherAgent] Mixin : {}", mixin_arg), "out");
+                    log_to_console(&app, &console_label, &format!("[LauncherAgent] Agent : {}", agent_arg), "out");
+                    (vec![mixin_arg, agent_arg], extra_cp)
+                }
+                Err(e) => {
+                    tracing::warn!("[LauncherAgent] mappings Yarn indisponibles ({}) — resource packs in-game désactivés", e);
+                    (vec![], vec![])
+                }
+            }
+        }
     };
 
     // ── Attente des assets ────────────────────────────────────────────────────
@@ -353,6 +449,7 @@ pub async fn download_and_launch(
 
     let mut full_classpath: Vec<String> = extra_classpath;
     full_classpath.extend(p2p_extra_cp); // asm-9.5.jar + asm-tree-9.5.jar avant tout le reste
+    full_classpath.extend(launcher_agent_extra_cp); // idem pour le LauncherAgent
     full_classpath.extend(classpath);
     full_classpath.push(effective_client_jar.to_string_lossy().to_string());
     let classpath_str = dedup_classpath(full_classpath).join(classpath_sep);
@@ -366,6 +463,7 @@ pub async fn download_and_launch(
     log_to_console(&app, &console_label, &gc_msg, "out");
     args.extend(extra_jvm_args);
     args.extend(p2p_jvm_args);
+    args.extend(launcher_agent_jvm_args);
     args.extend(["-cp".to_string(), classpath_str, main_class]);
     args.extend(build_game_args(&details, session, &mc_game_dir, &assets_dir, version_id));
     args.extend(extra_game_args);
@@ -494,6 +592,7 @@ async fn setup_fabric(
     libraries_dir: &PathBuf,
     mods_dir: &PathBuf,
     app: &tauri::AppHandle,
+    avoid_beta: bool,
 ) -> Result<(String, Vec<String>, Vec<String>, Vec<String>)> {
     set_progress(app, 72, 100, "Téléchargement Fabric Loader...");
 
@@ -504,7 +603,7 @@ async fn setup_fabric(
     }
 
     set_progress(app, 74, 100, "Résolution des dépendances des mods...");
-    if let Err(e) = deps::resolve_and_install_deps(mc_version, "fabric", mods_dir, app).await {
+    if let Err(e) = deps::resolve_and_install_deps(mc_version, "fabric", mods_dir, app, avoid_beta).await {
         tracing::warn!("Résolution des dépendances échouée: {}", e);
     }
 
@@ -529,6 +628,25 @@ async fn setup_fabric(
     Ok((profile.main_class, fabric_cp, vec![], extra_jvm))
 }
 
+/// Extrait juste la paire `--tweakClass <classe>` d'une `minecraftArguments`
+/// legacy (le reste de la chaîne ne fait que dupliquer les placeholders déjà
+/// substitués par les args vanilla de base).
+fn extract_tweak_class_args(mc_args: &str) -> Vec<String> {
+    let tokens: Vec<&str> = mc_args.split_whitespace().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        if tokens[i] == "--tweakClass" && i + 1 < tokens.len() {
+            out.push(tokens[i].to_string());
+            out.push(tokens[i + 1].to_string());
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
 async fn setup_forge(
     mc_version: &str,
     mc_dir: &PathBuf,
@@ -541,12 +659,15 @@ async fn setup_forge(
     let forge_ver = forge::fetch_latest_version(mc_version).await?;
     tracing::info!("Forge {} pour MC {}", forge_ver, mc_version);
 
-    if !forge::is_installed(mc_version, &forge_ver, mc_dir) {
-        set_progress(app, 72, 100, "Téléchargement de l'installeur Forge...");
-        forge::install(mc_version, &forge_ver, mc_dir, java).await?;
-    }
+    let version_id = match forge::find_installed(mc_version, &forge_ver, mc_dir) {
+        Some(id) => id,
+        None => {
+            set_progress(app, 72, 100, "Téléchargement de l'installeur Forge...");
+            forge::install(mc_version, &forge_ver, mc_dir, libraries_dir, java).await?
+        }
+    };
 
-    let forge_json = forge::read_version_json(mc_version, &forge_ver, mc_dir)?;
+    let forge_json = forge::read_version_json(&version_id, mc_dir)?;
     let mut forge_cp = Vec::new();
 
     if let Some(libs) = &forge_json.libraries {
@@ -564,7 +685,12 @@ async fn setup_forge(
     let extra_game: Vec<String> = forge_json
         .arguments.as_ref().and_then(|a| a.game.as_ref())
         .map(|g| g.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            // Legacy Forge (pré-1.13) : pas de bloc "arguments", seulement une
+            // "minecraftArguments" à plat dont on extrait juste --tweakClass
+            // (le reste duplique les args vanilla déjà posés ailleurs).
+            forge_json.minecraft_arguments.as_deref().map(extract_tweak_class_args).unwrap_or_default()
+        });
 
     let extra_jvm: Vec<String> = forge_json
         .arguments.as_ref().and_then(|a| a.jvm.as_ref())
@@ -831,7 +957,28 @@ pub async fn ensure_java(
         return Ok(java);
     }
 
-    // 3. Runtime Mojang déjà téléchargé
+    // 3. Java 8 : Mojang fige son propre runtime à la build 8u51 depuis des années
+    // (vérifié sur son manifeste officiel — seuls les certificats racine sont
+    // rafraîchis, jamais le JDK). On préfère un Eclipse Temurin récent (8u4xx+)
+    // si on peut le récupérer, avant de retomber sur le runtime Mojang figé.
+    if component == "jre-legacy" {
+        let temurin_dir = mc_dir.join("runtime").join("jre-legacy-temurin");
+        let temurin_exe = temurin_dir.join("bin").join(java_exe_name());
+        if temurin_exe.exists() {
+            return Ok(temurin_exe.to_string_lossy().to_string());
+        }
+        if cfg!(target_os = "windows") {
+            tracing::info!("Java 8 Mojang figé à 8u51 — tentative de téléchargement d'un Temurin récent");
+            set_progress(app, 10, 100, "Téléchargement Java 8 récent (Eclipse Temurin)...");
+            match download_adoptium_jre8(&temurin_dir, client).await {
+                Ok(()) if temurin_exe.exists() => return Ok(temurin_exe.to_string_lossy().to_string()),
+                Ok(()) => tracing::warn!("Téléchargement Temurin terminé mais java introuvable, repli sur Mojang"),
+                Err(e) => tracing::warn!("Téléchargement Temurin échoué ({}), repli sur Mojang", e),
+            }
+        }
+    }
+
+    // 4. Runtime Mojang déjà téléchargé
     let runtime_dir = mc_dir.join("runtime").join(component);
     let java_exe = if cfg!(target_os = "macos") {
         runtime_dir.join("jre.bundle").join("Contents").join("Home").join("bin").join("java")
@@ -842,7 +989,7 @@ pub async fn ensure_java(
         return Ok(java_exe.to_string_lossy().to_string());
     }
 
-    // 4. Téléchargement depuis Mojang
+    // 5. Téléchargement depuis Mojang
     tracing::info!("Java {} ({}) introuvable — téléchargement depuis Mojang", required_major, component);
     set_progress(app, 12, 100, &format!("Téléchargement Java {} (Mojang)...", required_major));
     download_mojang_runtime(component, &runtime_dir, client, app).await?;
@@ -932,6 +1079,61 @@ async fn download_mojang_runtime(
         if done % 100 == 0 || done == total {
             set_progress(app, 12 + done * 8 / total.max(1), 100,
                 &format!("Java runtime {}/{}", done, total));
+        }
+    }
+    Ok(())
+}
+
+/// Télécharge un JRE 8 récent (Eclipse Temurin, build "latest" — 8u4xx+ au
+/// lieu du 8u51 figé par Mojang) via l'API publique Adoptium et l'extrait
+/// dans `dest` (structure finale : `dest/bin/java.exe`, comme Mojang).
+/// Windows uniquement pour l'instant — Adoptium sert un .zip sur Windows
+/// mais un .tar.gz sur macOS/Linux, et seul le crate `zip` est disponible ici.
+async fn download_adoptium_jre8(dest: &PathBuf, client: &reqwest::Client) -> Result<()> {
+    let arch = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x64" };
+    let url = format!(
+        "https://api.adoptium.net/v3/binary/latest/8/ga/windows/{}/jre/hotspot/normal/eclipse?project=jdk",
+        arch
+    );
+
+    let resp = client.get(&url).send().await?;
+    if !resp.status().is_success() {
+        return Err(anyhow!("Téléchargement Adoptium échoué: {}", resp.status()));
+    }
+    let bytes = resp.bytes().await?;
+
+    tokio::fs::create_dir_all(dest).await?;
+    let temp_zip = dest.with_extension("download.zip");
+    tokio::fs::write(&temp_zip, &bytes).await?;
+
+    let extract_result = extract_zip_flatten_root(&temp_zip, dest);
+    let _ = tokio::fs::remove_file(&temp_zip).await;
+    extract_result
+}
+
+/// Extrait un zip Adoptium en retirant son unique dossier racine (ex :
+/// "jdk8u492-b09-jre/") pour que `dest` contienne directement `bin/`, `lib/`...
+fn extract_zip_flatten_root(zip_path: &PathBuf, dest: &PathBuf) -> Result<()> {
+    let file = std::fs::File::open(zip_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let entry_path = entry.mangled_name();
+        let relative: PathBuf = entry_path.components().skip(1).collect();
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+        let out_path = dest.join(&relative);
+
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out_path)?;
+        } else {
+            if let Some(parent) = out_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut out_file = std::fs::File::create(&out_path)?;
+            std::io::copy(&mut entry, &mut out_file)?;
         }
     }
     Ok(())

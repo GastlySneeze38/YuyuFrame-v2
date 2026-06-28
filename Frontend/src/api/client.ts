@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AuthStatus, DeviceAuthResponse, Instance, Mod, PollResponse, SaveInfo, StatsData, SyncInstance, Version } from '@/types'
+import type { AuthStatus, DeviceAuthResponse, Instance, Mod, ModpackMeta, PollResponse, SaveInfo, StatsData, SyncInstance, Version } from '@/types'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,11 +39,11 @@ export const api = {
 
   instances: {
     list: () => invoke<Instance[]>('instance_list'),
-    create: (name: string, mc_version: string, loader: string, ram_mb: number) =>
-      invoke<Instance>('instance_create', { name, mcVersion: mc_version, loader, ramMb: ram_mb }),
+    create: (name: string, mc_version: string, loader: string, ram_mb: number, description?: string) =>
+      invoke<Instance>('instance_create', { name, mcVersion: mc_version, loader, ramMb: ram_mb, description }),
     delete: (id: string) => invoke<void>('instance_delete', { id }),
-    update: (id: string, name: string, mc_version: string, loader: string, ram_mb: number) =>
-      invoke<Instance>('instance_update', { id, name, mcVersion: mc_version, loader, ramMb: ram_mb }),
+    update: (id: string, name: string, mc_version: string, loader: string, ram_mb: number, description?: string) =>
+      invoke<Instance>('instance_update', { id, name, mcVersion: mc_version, loader, ramMb: ram_mb, description }),
     duplicate: (sourceId: string, name: string, mc_version: string, ram_mb: number) =>
       invoke<Instance>('instance_duplicate', { sourceId, name, mcVersion: mc_version, ramMb: ram_mb }),
     toggleFavorite: (id: string) => invoke<Instance>('instance_toggle_favorite', { id }),
@@ -78,10 +78,12 @@ export const api = {
   },
 
   launch: {
-    start: (instanceId: string) =>
-      invoke<void>('launch_game', { instanceId }),
-    startP2p: (instanceId: string) =>
-      invoke<void>('launch_game', { instanceId, p2p: true }),
+    start: (instanceId: string, avoidBeta = true) =>
+      invoke<void>('launch_game', { instanceId, avoidBeta }),
+    startP2p: (instanceId: string, avoidBeta = true) =>
+      invoke<void>('launch_game', { instanceId, p2p: true, avoidBeta }),
+    reloadAgent: () =>
+      invoke<void>('reload_agent'),
   },
 
   sync: {
@@ -116,5 +118,40 @@ export const api = {
 
     icon: (instanceId: string, name: string) =>
       invoke<string>('mod_icon', { instanceId, name }),
+
+    importOptifine: (instanceId: string) =>
+      invoke<Mod>('mods_import_optifine', { instanceId }),
+
+    checkUpdateSafety: (
+      instanceId: string,
+      mcVersion: string,
+      loader: string,
+      candidates: Array<{ name: string; newVersion: string }>,
+    ) => invoke<Array<{ name: string; safe: boolean; blockedBy: string[] }>>(
+      'mods_check_update_safety', { instanceId, mcVersion, loader, candidates },
+    ),
+  },
+
+  modpacks: {
+    fetchIndex: (fileUrl: string) =>
+      invoke<{ mc_version: string | null; loader: string }>('modpack_fetch_index', { fileUrl }),
+    install: (input: {
+      instanceId: string
+      fileUrl: string
+      projectId: string
+      versionId: string
+      name: string
+      author: string
+      summary: string
+      iconUrl: string | null
+      versionNumber: string
+      downloads: number
+      dateModified: string | null
+      categories: string[]
+    }) => invoke<ModpackMeta>('modpack_install', { input }),
+    getMeta: (instanceId: string) => invoke<ModpackMeta | null>('modpack_get_meta', { instanceId }),
+    remove: (instanceId: string) => invoke<void>('modpack_remove', { instanceId }),
+    renameFile: (instanceId: string, oldName: string, newName: string) =>
+      invoke<ModpackMeta | null>('modpack_rename_file', { instanceId, oldName, newName }),
   },
 }

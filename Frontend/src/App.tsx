@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes, useNavigate, useLocation } from 'react-router-dom'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { TitleBar } from '@/components/TitleBar'
+import { UpdateChecker } from '@/components/UpdateChecker'
 import Login from '@/pages/Login'
 import Home from '@/pages/Home'
 import Instances from '@/pages/Instances'
@@ -16,8 +17,10 @@ import Stats from '@/pages/Stats'
 import Server from '@/pages/Server'
 import { useStore } from '@/stores/useStore'
 import { api } from '@/api/client'
+import { BETA_TEST } from '@/config/beta'
 
-const isConsoleWindow = getCurrentWindow().label.startsWith('mc-console-')
+const label = getCurrentWindow().label
+const isConsoleWindow = label.startsWith('mc-console-')
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
@@ -25,6 +28,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const { yuyuToken } = useStore()
 
   useEffect(() => {
+    if (BETA_TEST) return
     if (!yuyuToken && pathname !== '/yuyu') {
       navigate('/yuyu', { replace: true })
     }
@@ -51,10 +55,11 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-bg-primary">
       <TitleBar />
+      <UpdateChecker />
       <div className="flex-1 overflow-hidden" style={{ filter: `brightness(${brightness / 100})` }}>
         <Routes>
-          {/* YuyuFrame account gate — always accessible */}
-          <Route path="/yuyu" element={<YuyuLogin />} />
+          {/* YuyuFrame account gate — skipped in beta */}
+          <Route path="/yuyu" element={BETA_TEST ? <Navigate to="/home" replace /> : <YuyuLogin />} />
 
           {/* Protected routes */}
           <Route

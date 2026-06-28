@@ -107,7 +107,12 @@ export default function Login() {
         } catch { /* keep polling */ }
       }, 5000)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erreur de connexion au backend')
+      // invoke() de Tauri rejette avec une simple chaîne (pas un Error JS)
+      // quand une commande Rust renvoie Err(String) — sans ce cas, le vrai
+      // message ("Non authentifié sur YuyuFrame", etc.) était masqué par un
+      // message générique inutile pour diagnostiquer le problème.
+      const message = e instanceof Error ? e.message : typeof e === 'string' ? e : 'Erreur de connexion au backend'
+      setError(message)
       setStep('error')
     }
   }

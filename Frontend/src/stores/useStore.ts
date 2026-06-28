@@ -51,11 +51,17 @@ interface Store {
   closeOnLaunch: boolean
   setCloseOnLaunch: (v: boolean) => void
 
+  p2pEnabled: boolean
+  setP2pEnabled: (v: boolean) => void
+
   brightness: number
   setBrightness: (b: number) => void
 
   instanceSyncMode: 'db_wins' | 'disk_wins'
   setInstanceSyncMode: (mode: 'db_wins' | 'disk_wins') => void
+
+  avoidBetaDependencies: boolean
+  setAvoidBetaDependencies: (v: boolean) => void
 
   // ── Game state (par instance) ─────────────────────────────────────────────
   runningInstances: string[]
@@ -163,11 +169,17 @@ export const useStore = create<Store>()(
       closeOnLaunch: false,
       setCloseOnLaunch: (closeOnLaunch) => set({ closeOnLaunch }),
 
+      p2pEnabled: false,
+      setP2pEnabled: (p2pEnabled) => set({ p2pEnabled }),
+
       brightness: 100,
       setBrightness: (brightness) => set({ brightness }),
 
       instanceSyncMode: 'db_wins',
       setInstanceSyncMode: (instanceSyncMode) => set({ instanceSyncMode }),
+
+      avoidBetaDependencies: true,
+      setAvoidBetaDependencies: (avoidBetaDependencies) => set({ avoidBetaDependencies }),
 
       // Game (multi-instance)
       runningInstances: [],
@@ -192,8 +204,10 @@ export const useStore = create<Store>()(
         selectedInstanceId: s.selectedInstanceId,
         defaultRam: s.defaultRam,
         closeOnLaunch: s.closeOnLaunch,
+        p2pEnabled: s.p2pEnabled,
         brightness: s.brightness,
         instanceSyncMode: s.instanceSyncMode,
+        avoidBetaDependencies: s.avoidBetaDependencies,
         username: s.username,
         uuid: s.uuid,
         lastSession: s.lastSession,

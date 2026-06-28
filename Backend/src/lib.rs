@@ -3,15 +3,47 @@ mod db;
 mod minecraft;
 mod state;
 
+/// Miroir de `Frontend/src/config/beta.ts` — pendant la beta, le frontend
+/// saute l'écran de connexion YuyuFrame, mais le backend l'ignorait
+/// totalement et continuait à exiger un `yuyu_session` valide pour lier un
+/// compte Minecraft (auth_start_device/auth_poll), bloquant tout le monde en
+/// beta. Garder les deux flags synchronisés à la main (pas de mécanisme de
+/// partage Frontend/Backend pour cette constante).
+pub const BETA_TEST: bool = true;
+
 use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::{Mutex, RwLock};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 pub fn run() {
-    tracing_subscriber::fmt::init();
+    // Le build release tourne en `windows_subsystem = "windows"` (cf.
+    // main.rs) — aucune console n'est attachée, donc tous les logs qui
+    // s'affichaient en dev étaient invisibles en prod, rendant tout bug
+    // spécifique au build buildé impossible à diagnostiquer. On écrit
+    // maintenant aussi dans un fichier `yuyuframe.log` à côté de la DB
+    // (même logique dev/prod), en plus du stdout pour le dev.
+    let log_dir = if cfg!(dev) {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf()
+    } else {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+    };
+    let file_appender = tracing_appender::rolling::never(&log_dir, "yuyuframe.log");
+    let (non_blocking, _log_guard) = tracing_appender::non_blocking(file_appender);
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
+        .init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let db_path = if cfg!(dev) {
                 // Dev : garde la DB dans Backend/ à côté du code source
@@ -86,12 +118,20 @@ pub fn run() {
             commands::mc::mc_delete,
             commands::versions::list_versions,
             commands::launch::launch_game,
+            commands::launch::reload_agent,
             commands::mods::mods_list,
             commands::mods::mods_toggle,
             commands::mods::mods_delete,
             commands::mods::mods_install,
             commands::mods::mods_upload,
+            commands::mods::mods_import_optifine,
             commands::mods::mod_icon,
+            commands::mods::mods_check_update_safety,
+            commands::modpack::modpack_fetch_index,
+            commands::modpack::modpack_install,
+            commands::modpack::modpack_remove,
+            commands::modpack::modpack_rename_file,
+            commands::modpack::modpack_get_meta,
             commands::instances::instance_list,
             commands::instances::instance_create,
             commands::instances::instance_delete,

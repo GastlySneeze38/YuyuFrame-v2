@@ -2,6 +2,7 @@ pub mod auth;
 pub mod instances;
 pub mod launch;
 pub mod mc;
+pub mod modpack;
 pub mod mods;
 pub mod stats;
 pub mod sync;

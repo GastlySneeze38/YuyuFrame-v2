@@ -12,6 +12,7 @@ Backend/target/
 Backend/*.db
 Backend/*.db-shm
 Backend/*.db-wal
+Backend/updater.key
 
 # Logs and caches
 *.log

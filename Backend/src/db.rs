@@ -65,6 +65,7 @@ pub fn init_db(path: &Path) -> Result<Connection> {
     let _ = conn.execute("ALTER TABLE yuyu_session ADD COLUMN plan TEXT NOT NULL DEFAULT 'free'", []);
     let _ = conn.execute("ALTER TABLE yuyu_session ADD COLUMN plan_expires_at INTEGER", []);
     let _ = conn.execute("ALTER TABLE instances ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE instances ADD COLUMN description TEXT NOT NULL DEFAULT ''", []);
 
     Ok(conn)
 }
@@ -281,11 +282,12 @@ pub struct InstanceRow {
     pub loader: String,
     pub ram_mb: u32,
     pub favorite: bool,
+    pub description: String,
 }
 
 pub fn instance_list(conn: &Connection, user_id: i64) -> Result<Vec<InstanceRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, mc_version, loader, ram_mb, favorite FROM instances
+        "SELECT id, name, mc_version, loader, ram_mb, favorite, description FROM instances
          WHERE yuyu_user_id = ?1 ORDER BY created_at ASC",
     )?;
     let rows = stmt
@@ -297,6 +299,7 @@ pub fn instance_list(conn: &Connection, user_id: i64) -> Result<Vec<InstanceRow>
                 loader: r.get(3)?,
                 ram_mb: r.get::<_, u32>(4)?,
                 favorite: r.get::<_, i64>(5)? != 0,
+                description: r.get(6)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -305,7 +308,7 @@ pub fn instance_list(conn: &Connection, user_id: i64) -> Result<Vec<InstanceRow>
 
 pub fn instance_get(conn: &Connection, id: &str, user_id: i64) -> Result<Option<InstanceRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, mc_version, loader, ram_mb, favorite FROM instances
+        "SELECT id, name, mc_version, loader, ram_mb, favorite, description FROM instances
          WHERE id = ?1 AND yuyu_user_id = ?2",
     )?;
     match stmt.query_row(params![id, user_id], |r| {
@@ -316,6 +319,7 @@ pub fn instance_get(conn: &Connection, id: &str, user_id: i64) -> Result<Option<
             loader: r.get(3)?,
             ram_mb: r.get::<_, u32>(4)?,
             favorite: r.get::<_, i64>(5)? != 0,
+            description: r.get(6)?,
         })
     }) {
         Ok(row) => Ok(Some(row)),
@@ -340,12 +344,13 @@ pub fn instance_insert(
     mc_version: &str,
     loader: &str,
     ram_mb: u32,
+    description: &str,
 ) -> Result<()> {
     let now = chrono::Utc::now().timestamp();
     conn.execute(
-        "INSERT INTO instances (id, yuyu_user_id, name, mc_version, loader, ram_mb, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![id, user_id, name, mc_version, loader, ram_mb, now],
+        "INSERT INTO instances (id, yuyu_user_id, name, mc_version, loader, ram_mb, created_at, description)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![id, user_id, name, mc_version, loader, ram_mb, now, description],
     )?;
     Ok(())
 }
@@ -358,11 +363,12 @@ pub fn instance_update(
     mc_version: &str,
     loader: &str,
     ram_mb: u32,
+    description: &str,
 ) -> Result<()> {
     let n = conn.execute(
-        "UPDATE instances SET name=?1, mc_version=?2, loader=?3, ram_mb=?4
-         WHERE id=?5 AND yuyu_user_id=?6",
-        params![name, mc_version, loader, ram_mb, id, user_id],
+        "UPDATE instances SET name=?1, mc_version=?2, loader=?3, ram_mb=?4, description=?5
+         WHERE id=?6 AND yuyu_user_id=?7",
+        params![name, mc_version, loader, ram_mb, description, id, user_id],
     )?;
     if n == 0 {
         return Err(anyhow::anyhow!("Instance introuvable"));

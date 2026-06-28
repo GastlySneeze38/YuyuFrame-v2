@@ -46,6 +46,21 @@ export interface Instance {
   loader: Loader
   ram_mb: number
   favorite: boolean
+  description: string
+}
+
+export interface ModpackMeta {
+  project_id: string
+  version_id: string
+  name: string
+  author: string
+  summary: string
+  icon_url: string | null
+  version_number: string
+  downloads: number
+  date_modified: string | null
+  categories: string[]
+  mod_files: string[]
 }
 
 export type Theme = 'chill' | 'gamer'

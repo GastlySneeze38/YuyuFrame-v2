@@ -3,7 +3,10 @@ import { useStore } from '@/stores/useStore'
 
 export default function Settings() {
   const navigate = useNavigate()
-  const { brightness, setBrightness, defaultRam, setDefaultRam, closeOnLaunch, setCloseOnLaunch, instanceSyncMode, setInstanceSyncMode } = useStore()
+  const {
+    brightness, setBrightness, defaultRam, setDefaultRam, closeOnLaunch, setCloseOnLaunch,
+    instanceSyncMode, setInstanceSyncMode, avoidBetaDependencies, setAvoidBetaDependencies,
+  } = useStore()
 
   return (
     <div className="flex h-full flex-col overflow-hidden" style={{ background: '#09090D' }}>
@@ -107,6 +110,35 @@ export default function Settings() {
                     style={{
                       width: 18, height: 18,
                       left: closeOnLaunch ? 22 : 2,
+                    }}
+                  />
+                </button>
+              </div>
+
+              <div style={{ height: 1, background: 'rgba(255,255,255,0.06)' }} />
+
+              {/* Dépendances beta */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">Éviter les dépendances beta</p>
+                  <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+                    N'installe jamais automatiquement une version beta/alpha/RC d'un mod requis (ex: Sodium) — évite les incompatibilités avec les mods qui ne les supportent pas encore
+                  </p>
+                </div>
+                <button
+                  onClick={() => setAvoidBetaDependencies(!avoidBetaDependencies)}
+                  className="relative flex-shrink-0 rounded-full transition-all duration-200"
+                  style={{
+                    width: 44, height: 24,
+                    background: avoidBetaDependencies ? 'rgba(75,63,207,0.8)' : 'rgba(255,255,255,0.1)',
+                    border: `1px solid ${avoidBetaDependencies ? 'rgba(75,63,207,1)' : 'rgba(255,255,255,0.15)'}`,
+                  }}
+                >
+                  <span
+                    className="absolute top-0.5 rounded-full bg-white transition-all duration-200"
+                    style={{
+                      width: 18, height: 18,
+                      left: avoidBetaDependencies ? 22 : 2,
                     }}
                   />
                 </button>

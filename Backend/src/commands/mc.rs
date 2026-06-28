@@ -1,6 +1,19 @@
 use serde::Serialize;
 
-use crate::{db, minecraft::auth as mc_auth, state::SharedState};
+use crate::{db, minecraft::auth as mc_auth, state::{SharedState, YuyuSession}, BETA_TEST};
+
+/// Id à utiliser pour les requêtes DB liées aux comptes Minecraft. En beta,
+/// pas de compte YuyuFrame requis — 0 est le placeholder "pas de compte"
+/// déjà utilisé ailleurs dans le schéma (cf. table `instances`). Même bug
+/// que celui corrigé dans auth.rs : ce guard existait à plusieurs endroits
+/// ici aussi, bloquant `mc_list_accounts`/`mc_switch`/`mc_delete` en beta.
+fn current_yuyu_user_id(yuyu_session: &Option<YuyuSession>) -> Result<i64, String> {
+    match yuyu_session {
+        Some(y) => Ok(y.user_id),
+        None if BETA_TEST => Ok(0),
+        None => Err("Non authentifié".into()),
+    }
+}
 
 #[derive(Serialize)]
 pub struct AccountInfo {
@@ -14,11 +27,11 @@ pub async fn mc_list_accounts(
     state: tauri::State<'_, SharedState>,
 ) -> Result<Vec<AccountInfo>, String> {
     let s = state.read().await;
-    let yuyu = s.yuyu_session.as_ref().ok_or("Non authentifié")?.clone();
+    let yuyu_user_id = current_yuyu_user_id(&s.yuyu_session)?;
     let conn = s.db.lock().await;
 
-    let rows = db::list_mc_sessions(&conn, yuyu.user_id).map_err(|e| e.to_string())?;
-    let active_uuid = db::get_active_mc_uuid(&conn, yuyu.user_id).map_err(|e| e.to_string())?;
+    let rows = db::list_mc_sessions(&conn, yuyu_user_id).map_err(|e| e.to_string())?;
+    let active_uuid = db::get_active_mc_uuid(&conn, yuyu_user_id).map_err(|e| e.to_string())?;
 
     Ok(rows
         .into_iter()
@@ -37,12 +50,12 @@ pub async fn mc_switch(
 ) -> Result<AccountInfo, String> {
     let (yuyu_user_id, row) = {
         let s = state.read().await;
-        let yuyu = s.yuyu_session.as_ref().ok_or("Non authentifié")?.clone();
+        let yuyu_user_id = current_yuyu_user_id(&s.yuyu_session)?;
         let conn = s.db.lock().await;
-        let row = db::get_mc_session(&conn, yuyu.user_id, &uuid)
+        let row = db::get_mc_session(&conn, yuyu_user_id, &uuid)
             .map_err(|e| e.to_string())?
             .ok_or("Compte introuvable")?;
-        (yuyu.user_id, row)
+        (yuyu_user_id, row)
     };
 
     let now = chrono::Utc::now().timestamp();
@@ -99,10 +112,10 @@ pub async fn mc_delete(
 ) -> Result<(), String> {
     {
         let s = state.read().await;
-        let yuyu = s.yuyu_session.as_ref().ok_or("Non authentifié")?.clone();
+        let yuyu_user_id = current_yuyu_user_id(&s.yuyu_session)?;
         let conn = s.db.lock().await;
-        db::delete_mc_session(&conn, yuyu.user_id, &uuid).map_err(|e| e.to_string())?;
-        db::clear_active_mc(&conn, yuyu.user_id, &uuid).ok();
+        db::delete_mc_session(&conn, yuyu_user_id, &uuid).map_err(|e| e.to_string())?;
+        db::clear_active_mc(&conn, yuyu_user_id, &uuid).ok();
     }
 
     let mut w = state.write().await;

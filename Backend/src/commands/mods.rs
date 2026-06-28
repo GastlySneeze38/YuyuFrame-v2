@@ -1,11 +1,12 @@
 use base64::Engine as _;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, LazyLock};
 
 use crate::commands::instances::instance_mods_dir;
+use crate::minecraft::version_pred::{normalize_version, parse_predicate_groups, read_fabric_mod_json, version_allowed};
 
 #[derive(Serialize, Clone)]
 pub struct ModInfo {
@@ -267,4 +268,139 @@ pub async fn mods_upload(
         .unwrap_or_default();
 
     Ok(ModInfo { name: safe_name, size, enabled: true, sha1 })
+}
+
+/// Cherche le jar OptiFine le plus récent dans le dossier Téléchargements de
+/// l'utilisateur et le copie dans les mods de l'instance.
+///
+/// OptiFine n'autorise aucune redistribution sans permission écrite de son
+/// auteur (cf. https://optifine.net/copyright) — on ne télécharge donc
+/// jamais le jar nous-mêmes. L'utilisateur passe par le vrai site officiel
+/// (bouton "Ouvrir OptiFine" côté Frontend), et cette commande se contente de
+/// déplacer le fichier qu'il vient de télécharger lui-même vers le bon
+/// dossier — aucun contenu OptiFine ne transite par nos serveurs.
+#[tauri::command]
+pub async fn mods_import_optifine(instance_id: String) -> Result<ModInfo, String> {
+    let downloads = dirs::download_dir().ok_or("Dossier Téléchargements introuvable")?;
+
+    let mut candidates: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    let mut entries = tokio::fs::read_dir(&downloads).await.map_err(|e| e.to_string())?;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        let name = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+        if name.starts_with("optifine") && name.ends_with(".jar") {
+            if let Ok(meta) = entry.metadata().await {
+                if let Ok(modified) = meta.modified() {
+                    candidates.push((modified, path));
+                }
+            }
+        }
+    }
+
+    candidates.sort_by_key(|(t, _)| *t);
+    let (_, source) = candidates
+        .pop()
+        .ok_or("Aucun fichier OptiFine_*.jar trouvé dans Téléchargements — télécharge-le d'abord depuis le site officiel")?;
+
+    let safe_name = source
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "OptiFine.jar".to_string());
+
+    let dir = instance_mods_dir(&instance_id);
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| e.to_string())?;
+    let dest = dir.join(&safe_name);
+
+    tokio::fs::copy(&source, &dest).await.map_err(|e| e.to_string())?;
+    let size = tokio::fs::metadata(&dest).await.map(|m| m.len()).unwrap_or(0);
+    let sha1 = tokio::task::spawn_blocking(move || sha1_cached(&dest))
+        .await
+        .unwrap_or_default();
+
+    Ok(ModInfo { name: safe_name, size, enabled: true, sha1 })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCandidate {
+    /// Nom de fichier actuel du mod dans le dossier de l'instance.
+    pub name: String,
+    pub new_version: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSafety {
+    pub name: String,
+    pub safe: bool,
+    /// Mods dont la dépendance déclarée bloquerait cette mise à jour.
+    pub blocked_by: Vec<String>,
+}
+
+/// Vérifie, pour chaque mise à jour candidate, si la nouvelle version respecte
+/// les contraintes de version (`depends`) déclarées par les *autres* mods
+/// installés dans l'instance — pour ne pas proposer une mise à jour qui
+/// casserait un mod dépendant (ex: Voxy exige Sodium &lt;0.8.13).
+#[tauri::command]
+pub async fn mods_check_update_safety(
+    instance_id: String,
+    mc_version: String,
+    loader: String,
+    candidates: Vec<UpdateCandidate>,
+) -> Result<Vec<UpdateSafety>, String> {
+    let dir = instance_mods_dir(&instance_id);
+
+    tokio::task::spawn_blocking(move || {
+        // id fabric -> nom de fichier, pour retrouver le candidat par son id
+        let mut id_by_name: HashMap<String, String> = HashMap::new();
+        // mods déclarant des contraintes : (nom du mod déclarant, id visé, depends, breaks)
+        let mut constraints: Vec<(String, String, Vec<Vec<String>>, Vec<Vec<String>>)> = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                if !name.ends_with(".jar") {
+                    continue;
+                }
+                let Some(meta) = read_fabric_mod_json(&path) else { continue };
+                id_by_name.insert(name.clone(), meta.id.clone());
+                for (dep_id, predicate_value) in &meta.depends {
+                    let depends_groups = parse_predicate_groups(predicate_value);
+                    let breaks_groups = meta
+                        .breaks
+                        .get(dep_id)
+                        .map(parse_predicate_groups)
+                        .unwrap_or_default();
+                    if !depends_groups.is_empty() || !breaks_groups.is_empty() {
+                        constraints.push((name.clone(), dep_id.clone(), depends_groups, breaks_groups));
+                    }
+                }
+            }
+        }
+
+        candidates
+            .into_iter()
+            .map(|c| {
+                let target_id = id_by_name.get(&c.name).cloned();
+                let normalized_new_version = normalize_version(&c.new_version, &mc_version, &loader);
+                let blocked_by: Vec<String> = match &target_id {
+                    Some(id) => constraints
+                        .iter()
+                        .filter(|(declaring_mod, dep_id, _, _)| {
+                            dep_id == id && declaring_mod != &c.name
+                        })
+                        .filter(|(_, _, depends_groups, breaks_groups)| {
+                            !version_allowed(&normalized_new_version, depends_groups, breaks_groups)
+                        })
+                        .map(|(declaring_mod, _, _, _)| declaring_mod.clone())
+                        .collect(),
+                    None => Vec::new(),
+                };
+                UpdateSafety { safe: blocked_by.is_empty(), name: c.name, blocked_by }
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
 }

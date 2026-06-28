@@ -4,6 +4,7 @@ import { open } from '@tauri-apps/plugin-shell'
 import { api } from '@/api/client'
 import { useStore } from '@/stores/useStore'
 import type { YuyuPlan } from '@/stores/useStore'
+import { BETA_TEST } from '@/config/beta'
 
 const PLANS = [
   {
@@ -62,6 +63,29 @@ const PLANS = [
 export default function Plans() {
   const navigate = useNavigate()
   const { yuyuPlanExpiresAt, yuyuUsername, isPremium, isUltimate, setYuyuPlan } = useStore()
+
+  if (BETA_TEST) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4" style={{ background: '#09090D' }}>
+        <div style={{ opacity: 0.15 }}>
+          <svg viewBox="0 0 24 24" fill="white" width={48} height={48}><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" /></svg>
+        </div>
+        <p style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.5)' }}>Plans non disponibles en bêta</p>
+        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', textAlign: 'center', maxWidth: 280 }}>
+          Le système d'abonnement sera accessible dans une prochaine version.
+        </p>
+        <button
+          onClick={() => navigate('/home')}
+          className="rounded-xl px-5 py-2 text-sm font-semibold transition-all duration-150"
+          style={{ background: 'rgba(75,63,207,0.18)', border: '1px solid rgba(75,63,207,0.35)', color: 'rgba(180,170,255,0.9)' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(75,63,207,0.3)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(75,63,207,0.18)' }}
+        >
+          Retour
+        </button>
+      </div>
+    )
+  }
 
   const effectivePlan = isUltimate() ? 'ultimate' : isPremium() ? 'premium' : 'free'
 
