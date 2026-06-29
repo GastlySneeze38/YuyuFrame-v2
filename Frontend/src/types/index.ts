@@ -77,6 +77,7 @@ export interface SyncInstance {
   loader: string
   ram_mb: number
   save_count: number
+  save_names: string[]
   has_data: boolean
   updated_at: number
 }

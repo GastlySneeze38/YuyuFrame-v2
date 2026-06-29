@@ -19,6 +19,8 @@ pub struct SyncInstance {
     pub mc_version: String,
     pub loader: String,
     pub ram_mb: u32,
+    pub save_count: u32,
+    pub save_names: Vec<String>,
     pub has_data: bool,
     pub updated_at: i64,
 }
@@ -295,6 +297,7 @@ pub async fn sync_push_instance(
             "loader":        instance.loader,
             "ram_mb":        instance.ram_mb,
             "save_count":    save_names.len() as u32,
+            "save_names":    save_names,
         }))
         .send()
         .await
