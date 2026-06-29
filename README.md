@@ -41,4 +41,4 @@ YuyuFrame est un launcher Minecraft premium offrant une expérience de jeu optim
 Code signing provided by [SignPath Foundation](https://signpath.org)
 
 ## Privacy Policy
-[Privacy Policy](https://github.com/gastlysneeze38/YuyuFrame-v/blob/main/PRIVACY.md)
+[Privacy Policy](https://github.com/gastlysneeze38/YuyuFrame-v2/blob/main/PRIVACY.md)
