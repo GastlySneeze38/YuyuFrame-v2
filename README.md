@@ -38,4 +38,4 @@ YuyuFrame est un launcher Minecraft premium offrant une expérience de jeu optim
 - Interface moderne et intuitive
 
 ## Code Signature
-Code signing provided by https://signpath.org
+Code signing provided by [SignPath Foundation](https://signpath.org)
