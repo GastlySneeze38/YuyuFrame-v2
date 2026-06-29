@@ -1,1 +1,1 @@
-export const BETA_TEST = false
+export const BETA_TEST = true
