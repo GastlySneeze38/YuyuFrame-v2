@@ -4,7 +4,7 @@
 
 ## 1. Who we are
 
-YuyuFrame is an open source peer-to-peer Minecraft launcher developed by Ghasty. The source code is available at https://github.com/gastlysneeze38/YuyuFrame-2.
+YuyuFrame is an open source peer-to-peer Minecraft launcher developed by Ghasty. The source code is available at https://github.com/gastlysneeze38/YuyuFrame-v2.
 
 ## 2. Data we collect
 
