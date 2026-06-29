@@ -35,7 +35,7 @@ fn compute_sha1(path: &std::path::Path) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn sha1_cached(path: &std::path::Path) -> String {
+pub fn sha1_cached(path: &std::path::Path) -> String {
     let Ok(meta) = std::fs::metadata(path) else { return String::new() };
     let size = meta.len();
     let mtime = meta.modified()

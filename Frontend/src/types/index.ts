@@ -77,6 +77,7 @@ export interface SyncInstance {
   loader: string
   ram_mb: number
   save_count: number
+  save_names: string[]
   has_data: boolean
   updated_at: number
 }
@@ -88,7 +89,7 @@ export interface SaveInfo {
 }
 
 export interface SyncProgress {
-  phase: 'compressing' | 'uploading' | 'done'
+  phase: 'resolving_mods' | 'compressing' | 'uploading' | 'downloading' | 'installing_mods' | 'done'
   percent: number
   label: string
 }
@@ -121,4 +122,10 @@ export interface StatsData {
   per_instance: InstanceStat[]
   recent_sessions: RecentSession[]
   daily: DailyStat[]
+}
+
+export interface SystemMemoryInfo {
+  total_mb: number
+  available_mb: number
+  suggested_mb: number
 }

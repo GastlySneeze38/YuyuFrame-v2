@@ -9,7 +9,7 @@ mod state;
 /// compte Minecraft (auth_start_device/auth_poll), bloquant tout le monde en
 /// beta. Garder les deux flags synchronisés à la main (pas de mécanisme de
 /// partage Frontend/Backend pour cette constante).
-pub const BETA_TEST: bool = true;
+pub const BETA_TEST: bool = false;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -152,6 +152,7 @@ pub fn run() {
             commands::sync::sync_pull_instance,
             commands::sync::sync_delete_instance,
             commands::stats::stats_get,
+            commands::system::system_memory_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

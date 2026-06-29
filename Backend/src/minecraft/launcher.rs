@@ -15,7 +15,7 @@ use super::fabric;
 use super::forge;
 use super::p2p;
 use super::versions::{
-    fetch_asset_index, fetch_version_details, fetch_version_list, Artifact, Library, VersionDetails,
+    fetch_version_list, AssetIndexFile, Artifact, Library, VersionDetails,
 };
 
 pub fn minecraft_dir() -> PathBuf {
@@ -83,15 +83,31 @@ pub async fn download_and_launch(
 
     // ── Vanilla download ──────────────────────────────────────────────────────
 
-    set_progress(&app, 0, 100, "Récupération du manifest...");
-    let versions = fetch_version_list().await?;
-    let version_info = versions
-        .iter()
-        .find(|v| v.id == version_id)
-        .ok_or_else(|| anyhow!("Version {} introuvable", version_id))?;
+    // Le JSON de détails d'une version donnée ne change jamais une fois publié
+    // par Mojang — s'il est déjà en cache local (lancements précédents), on
+    // évite complètement le manifest + la requête détails par réseau, qui
+    // se refaisaient sans condition à CHAQUE lancement même quand rien n'avait
+    // changé depuis la fois précédente.
+    let version_json_cache = versions_dir.join(&version_id).join(format!("{}.json", version_id));
+    let details: VersionDetails = if let Ok(text) = tokio::fs::read_to_string(&version_json_cache).await {
+        set_progress(&app, 5, 100, "Détails de version (cache local)...");
+        serde_json::from_str(&text)?
+    } else {
+        set_progress(&app, 0, 100, "Récupération du manifest...");
+        let versions = fetch_version_list().await?;
+        let version_info = versions
+            .iter()
+            .find(|v| v.id == version_id)
+            .ok_or_else(|| anyhow!("Version {} introuvable", version_id))?;
 
-    set_progress(&app, 5, 100, "Récupération des détails...");
-    let details = fetch_version_details(&version_info.url).await?;
+        set_progress(&app, 5, 100, "Récupération des détails...");
+        let raw = reqwest::Client::new().get(&version_info.url).send().await?.text().await?;
+        if let Some(parent) = version_json_cache.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        let _ = tokio::fs::write(&version_json_cache, &raw).await;
+        serde_json::from_str(&raw)?
+    };
 
     // Client HTTP partagé — pool de connexions réutilisées pour tous les téléchargements
     let client = Arc::new(reqwest::Client::builder()
@@ -113,7 +129,12 @@ pub async fn download_and_launch(
             if !asset_index_path.exists() {
                 download_file(&client, &asset_index.url, &asset_index_path).await?;
             }
-            let index_file = fetch_asset_index(&asset_index.url).await?;
+            // On vient de s'assurer que le fichier est sur disque (déjà présent ou
+            // juste téléchargé) — on le relit localement au lieu de re-télécharger
+            // le même contenu par réseau à chaque lancement (l'asset index d'une
+            // version donnée ne change jamais une fois publié).
+            let index_text = tokio::fs::read_to_string(&asset_index_path).await?;
+            let index_file: AssetIndexFile = serde_json::from_str(&index_text)?;
             let objects_dir = assets_dir.join("objects");
             let total_assets = index_file.objects.len() as u64;
 
@@ -703,10 +724,22 @@ async fn setup_forge(
             forge_json.minecraft_arguments.as_deref().map(extract_tweak_class_args).unwrap_or_default()
         });
 
-    let extra_jvm: Vec<String> = forge_json
+    let mut extra_jvm: Vec<String> = forge_json
         .arguments.as_ref().and_then(|a| a.jvm.as_ref())
         .map(|j| j.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
         .unwrap_or_default();
+
+    // Forge legacy (pré-1.13, pas de bloc "arguments") : FML revérifie par défaut
+    // à chaque lancement le certificat/checksum du client jar et compare son hash
+    // de patch attendu — utile une seule fois à l'installation, inutile ensuite
+    // puisque le jar ne change plus. On désactive ces deux contrôles redondants.
+    // Volontairement on NE touche PAS à -Xverify:none : ça désactiverait la
+    // vérification bytecode pour TOUTES les classes chargées, y compris les mods
+    // que l'utilisateur ajoute lui-même (non auditables par nous).
+    if forge_json.arguments.is_none() {
+        extra_jvm.push("-Dfml.ignoreInvalidMinecraftCertificates=true".into());
+        extra_jvm.push("-Dfml.ignorePatchDiscrepancies=true".into());
+    }
 
     Ok((forge_json.main_class, forge_cp, extra_game, extra_jvm))
 }
@@ -742,16 +775,26 @@ async fn detect_java_major_version(java: &str) -> Option<u32> {
 }
 
 fn build_jvm_args(ram_mb: u32, natives_dir: &PathBuf, java_major: u32) -> Vec<String> {
-    let base = vec![
+    let mut base = vec![
         format!("-Xmx{}m", ram_mb),
         format!("-Xms{}m", ram_mb),  // Xms = Xmx : pas de redimensionnement du heap
         format!("-Djava.library.path={}", natives_dir.display()),
         format!("-Dorg.lwjgl.librarypath={}", natives_dir.display()),
         "-XX:+DisableExplicitGC".into(),       // Ignore System.gc() appelés par les mods
-        "-XX:+AlwaysPreTouch".into(),          // Pré-alloue les pages RAM au boot
         "-XX:+PerfDisableSharedMem".into(),    // Pas de fichiers perf OS (source de jitter)
         "-XX:+UseStringDeduplication".into(),  // Réduit les doublons String en mémoire
     ];
+
+    // AlwaysPreTouch force le touch physique de TOUT le tas dès le boot —
+    // excellent pour le runtime (plus de page faults pendant le jeu), mais
+    // ça concentre tout le coût d'allocation mémoire en un seul pic au
+    // lancement. Sur une petite config (RAM dispo limitée, allocation
+    // < 3 Go), ce pic peut largement dominer le temps de lancement perçu —
+    // on le réserve donc aux configs où le heap est assez gros pour que le
+    // gain runtime en vaille la peine.
+    if ram_mb >= 3072 {
+        base.push("-XX:+AlwaysPreTouch".into());
+    }
 
     if java_major >= 21 {
         // ── ZGC Generational (Java 21+) ───────────────────────────────────────
@@ -768,8 +811,47 @@ fn build_jvm_args(ram_mb: u32, natives_dir: &PathBuf, java_major: u32) -> Vec<St
             "-XX:+UnlockExperimentalVMOptions".into(),
         ]);
         args
+    } else if java_major <= 8 {
+        // ── G1GC tuning Java 8 (versions legacy : 1.8.9 et antérieures) ───────
+        // L'implémentation G1 de Java 8 (HotSpot ~2014) est nettement moins
+        // mature que celle de Java 17+ : mêmes noms de flags, mais le moteur
+        // sous-jacent diffère assez pour que les valeurs ci-dessus (pensées
+        // pour Java 17-20) ne soient pas optimales ici. Set basé sur des
+        // benchmarks communautaires pour Minecraft/Java 8 (cf. dépôt
+        // brucethemoose/Minecraft-Performance-Flags-Benchmarks).
+        //
+        // Volontairement plus conservateur que la liste de cette source :
+        // les flags JIT/C2 les plus obscurs (MaxNodeLimit, NmethodSweepActivity,
+        // UseFPUForSpilling...) sont écartés — un flag -XX inconnu empêche le
+        // JVM de démarrer du tout, et certains builds Java 8 (vendeur/version)
+        // ne les reconnaissent pas tous. Mieux vaut un gain plus modeste mais
+        // fiable qu'un launcher qui refuse de démarrer.
+        let region_size = if ram_mb >= 6144 { "8M" }
+            else if ram_mb >= 3072 { "4M" }
+            else { "2M" };
+        let mut args = base;
+        args.extend([
+            "-XX:+UseG1GC".into(),
+            "-XX:+ParallelRefProcEnabled".into(),
+            "-XX:MaxGCPauseMillis=50".into(),
+            "-XX:+UnlockExperimentalVMOptions".into(),
+            "-XX:+UnlockDiagnosticVMOptions".into(),
+            format!("-XX:G1HeapRegionSize={}", region_size),
+            "-XX:G1NewSizePercent=30".into(),
+            "-XX:G1MaxNewSizePercent=40".into(),
+            "-XX:G1ReservePercent=20".into(),
+            "-XX:InitiatingHeapOccupancyPercent=15".into(),
+            "-XX:+AlwaysActAsServerClassMachine".into(), // force les heuristiques JIT "serveur" (compilation plus agressive) même sur petite machine
+            "-XX:+UseFastAccessorMethods".into(),
+            "-XX:MaxInlineLevel=15".into(),
+            "-XX:+UseCompressedOops".into(),
+            "-XX:ThreadPriorityPolicy=1".into(),
+            "-XX:+UseDynamicNumberOfGCThreads".into(),
+            "-XX:ReservedCodeCacheSize=350m".into(),
+        ]);
+        args
     } else {
-        // ── G1GC (Java 17/18/19/20) ──────────────────────────────────────────
+        // ── G1GC (Java 9 à 20) ────────────────────────────────────────────────
         // ZGC Generational non disponible, fallback G1GC avec tuning client
         let region_size = if ram_mb >= 12288 { "16M" }
             else if ram_mb >= 6144 { "8M" }

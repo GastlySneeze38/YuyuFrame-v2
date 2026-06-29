@@ -1,6 +1,6 @@
 {
   "productName": "YuyuFrame",
-  "version": "0.1.0-3",
+  "version": "0.1.0-4",
   "identifier": "fr.yuyuframe.launcher",
   "build": {
     "beforeDevCommand": "npm --prefix Frontend run dev",

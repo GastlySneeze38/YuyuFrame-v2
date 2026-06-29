@@ -94,6 +94,8 @@ export const PVP_PRESET: InstancePreset = {
     'environment',
     'patcher', // PolyPatcher — optimisations (entity culling, rendu) en alternative légale à OptiFine
     'animatium-legacy', // OverflowAnimations — restaure les animations de combat 1.7 (blocage épée plus fluide)
+    'borderlessfullscreen', // dérivé du mod de Sk1er (Lunar) — plein écran sans bordure façon Badlion/Lunar, plus fluide qu'un plein écran exclusif sur Windows moderne
+
     // YuyuPvP — notre propre mod (keystrokes, FPS, ping, FOV, hurt cam,
     // crosshair, teinte vie basse...). URL directe en attendant que le
     // projet soit indexé par la recherche Modrinth (juste publié).
