@@ -89,7 +89,7 @@ export interface SaveInfo {
 }
 
 export interface SyncProgress {
-  phase: 'compressing' | 'uploading' | 'done'
+  phase: 'resolving_mods' | 'compressing' | 'uploading' | 'downloading' | 'installing_mods' | 'done'
   percent: number
   label: string
 }

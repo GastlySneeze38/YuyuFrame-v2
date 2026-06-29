@@ -268,7 +268,7 @@ function InstanceSyncCard({
   const handlePush = async () => {
     setPushing(true)
     setError('')
-    setProgress({ phase: 'compressing', percent: 0, label: 'Démarrage...' })
+    setProgress({ phase: 'resolving_mods', percent: 0, label: 'Démarrage...' })
 
     const unlisten = await listen<SyncProgress>('sync_progress', (ev) => {
       setProgress(ev.payload)
@@ -293,12 +293,22 @@ function InstanceSyncCard({
     if (!cloudEntry) return
     setPulling(true)
     setError('')
+    setProgress({ phase: 'downloading', percent: 0, label: 'Démarrage de la restauration...' })
+
+    const unlisten = await listen<SyncProgress>('sync_progress', (ev) => {
+      setProgress(ev.payload)
+    })
+    unlistenRef.current = unlisten
+
     try {
       await api.sync.pull(cloudEntry.id, instance.id)
       flash('Données restaurées !')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
+      unlisten()
+      unlistenRef.current = null
+      setTimeout(() => setProgress(null), 1200)
       setPulling(false)
     }
   }
