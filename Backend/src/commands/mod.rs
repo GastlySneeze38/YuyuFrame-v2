@@ -6,5 +6,6 @@ pub mod modpack;
 pub mod mods;
 pub mod stats;
 pub mod sync;
+pub mod system;
 pub mod versions;
 pub mod yuyu;

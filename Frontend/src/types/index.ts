@@ -123,3 +123,9 @@ export interface StatsData {
   recent_sessions: RecentSession[]
   daily: DailyStat[]
 }
+
+export interface SystemMemoryInfo {
+  total_mb: number
+  available_mb: number
+  suggested_mb: number
+}

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AuthStatus, DeviceAuthResponse, Instance, Mod, ModpackMeta, PollResponse, SaveInfo, StatsData, SyncInstance, Version } from '@/types'
+import type { AuthStatus, DeviceAuthResponse, Instance, Mod, ModpackMeta, PollResponse, SaveInfo, StatsData, SyncInstance, SystemMemoryInfo, Version } from '@/types'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,6 +100,10 @@ export const api = {
 
   stats: {
     get: () => invoke<StatsData>('stats_get'),
+  },
+
+  system: {
+    memoryInfo: () => invoke<SystemMemoryInfo>('system_memory_info'),
   },
 
   mods: {
