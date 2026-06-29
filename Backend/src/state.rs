@@ -71,6 +71,22 @@ impl AppState {
     pub fn any_running(&self) -> bool {
         !self.running_instances.is_empty()
     }
+
+    /// Id à utiliser pour les requêtes DB/state liées à un compte YuyuFrame.
+    /// En `BETA_TEST`, il n'y a jamais de `yuyu_session` (le login YuyuFrame
+    /// est skippé) — 0 est le placeholder "pas de compte" déjà utilisé dans
+    /// le schéma (cf. table `instances`, colonne yuyu_user_id DEFAULT 0).
+    /// Source unique de vérité : avant l'introduction de ce helper, ce même
+    /// garde était dupliqué à la main dans `auth.rs`/`mc.rs`, et certains
+    /// endroits (restauration de session au démarrage, `auth_logout`)
+    /// l'oubliaient, bloquant des fonctionnalités entières en beta.
+    pub fn current_yuyu_user_id(&self) -> Option<i64> {
+        match &self.yuyu_session {
+            Some(y) => Some(y.user_id),
+            None if crate::BETA_TEST => Some(0),
+            None => None,
+        }
+    }
 }
 
 pub type SharedState = Arc<RwLock<AppState>>;

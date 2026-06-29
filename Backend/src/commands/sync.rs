@@ -275,7 +275,7 @@ pub async fn sync_push_instance(
         let s = state.read().await;
         require_premium(&s)?;
         let token = get_token(&s)?;
-        let user_id = s.yuyu_session.as_ref().map(|y| y.user_id).unwrap_or(0);
+        let user_id = s.current_yuyu_user_id().unwrap_or(0);
         let conn = s.db.lock().await;
         let row = db::instance_get(&conn, &instance_id, user_id)
             .map_err(|e| e.to_string())?
